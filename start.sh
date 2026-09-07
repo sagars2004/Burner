@@ -18,6 +18,13 @@ lsof -ti:8000 | xargs kill -9 2>/dev/null || true
 pkill -f "Burner.app/Contents/MacOS/Burner" 2>/dev/null || true
 sleep 0.5
 
+# Load .env variables if present
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    set -a
+    source "$PROJECT_ROOT/.env"
+    set +a
+fi
+
 # 2. Ensure Python Virtual Environment exists
 if [ ! -d "$SERVER_DIR/venv" ]; then
     echo "📦 Creating Python virtual environment..."
@@ -43,7 +50,7 @@ done
 
 # 4. Fast incremental build of Swift Menu Bar App (picks up all Swift changes automatically)
 echo "🔨 Compiling latest Swift changes..."
-xcodebuild -project "$PROJECT_ROOT/BurnerApp/Burner.xcodeproj" -scheme Burner build -destination 'platform=macOS,arch=arm64' -quiet
+xcodebuild -project "$PROJECT_ROOT/BurnerApp/Burner.xcodeproj" -scheme Burner build -destination 'platform=macOS' -quiet 2>/dev/null || xcodebuild -project "$PROJECT_ROOT/BurnerApp/Burner.xcodeproj" -scheme Burner build -quiet
 
 # 5. Launch the Native macOS Menu Bar App
 echo "🚀 Launching Burner Menu Bar App..."

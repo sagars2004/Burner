@@ -44,12 +44,14 @@ class ClaudeAdapter:
                 with open(self.history_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                if isinstance(data, list) and len(data) > 0:
+                samples = data if isinstance(data, list) else data.get("samples", [])
+
+                if isinstance(samples, list) and len(samples) > 0:
                     now_ms = time.time() * 1000
                     window_start_ms = now_ms - (self.WINDOW_SECONDS * 1000)
 
                     recent_entries = [
-                        entry for entry in data
+                        entry for entry in samples
                         if isinstance(entry, dict) and entry.get("t", 0) >= window_start_ms
                     ]
                     count = len(recent_entries)

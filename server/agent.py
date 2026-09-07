@@ -1,6 +1,11 @@
 import os
 import json
+import logging
 from typing import Dict, List, Optional, Tuple
+
+# Suppress google-genai library info/warning messages
+logging.getLogger("google_genai").setLevel(logging.ERROR)
+logging.getLogger("google.genai").setLevel(logging.ERROR)
 from .models import (
     ProviderID,
     ProviderQuota,
@@ -22,6 +27,17 @@ class BurnerAgent:
     def __init__(self):
         self.gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self.nvidia_key = os.getenv("NVIDIA_API_KEY")
+
+        if not self.gemini_key:
+            env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+            if os.path.exists(env_path):
+                with open(env_path, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("GEMINI_API_KEY="):
+                            self.gemini_key = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        elif line.startswith("NVIDIA_API_KEY="):
+                            self.nvidia_key = line.split("=", 1)[1].strip().strip('"').strip("'")
 
     def recommend(self, task: TaskRequest, quotas: List[ProviderQuota]) -> RoutingRecommendation:
         # Step 1: Detect burn rate warnings across providers
@@ -187,6 +203,8 @@ class BurnerAgent:
     ) -> Optional[RoutingRecommendation]:
         try:
             from google import genai
+            from google.genai.models import Models
+            Models._logged_afc_warning = True
             client = genai.Client(api_key=self.gemini_key)
 
             prompt = f"""
@@ -211,7 +229,7 @@ Return a JSON object with:
 - "suggested_model": string (e.g. "Claude 3.5 Sonnet", "Gemini 1.5 Pro")
 """
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-3.6-flash",
                 contents=prompt,
                 config={"response_mime_type": "application/json"}
             )
@@ -224,7 +242,7 @@ Return a JSON object with:
                 reasoning=data["reasoning"],
                 burn_rate_warning=burn_warning,
                 suggested_model=data.get("suggested_model", "Default Model"),
-                reasoning_engine="gemini-2.0-flash",
+                reasoning_engine="gemini-3.6-flash",
             )
         except Exception:
             return None
