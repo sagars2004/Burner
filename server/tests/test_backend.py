@@ -162,3 +162,19 @@ def test_simulate_api():
 
     reset_res = client.post("/api/simulate", json={"provider_id": "claude", "reset": True})
     assert reset_res.status_code == 200
+
+
+def test_chat_api():
+    chat_req = {
+        "messages": [
+            {"role": "user", "content": "Which tool should I use to save my Claude quota?"}
+        ]
+    }
+    res = client.post("/api/chat", json=chat_req)
+    assert res.status_code == 200
+    data = res.json()
+    assert "message" in data
+    assert data["message"]["role"] == "assistant"
+    assert len(data["message"]["content"]) > 0
+    assert data["engine"] in ["gemini-3.6-flash", "burner-local-strategist"]
+

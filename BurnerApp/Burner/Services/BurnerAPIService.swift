@@ -16,6 +16,14 @@ public class BurnerAPIService: ObservableObject {
     @Published public var isAnalyzing: Bool = false
     @Published public var selectedTaskType: TaskType = .general
     @Published public var lastUpdated: Date = Date()
+    @Published public var chatMessages: [ChatMessagePayload] = [
+        ChatMessagePayload(
+            role: "assistant",
+            content: "Hey! I'm your Gemini Quota Copilot. Ask me about model limits, token budgeting, or which tool to use next to prevent rate-limit lockouts."
+        )
+    ]
+    @Published public var isChatLoading: Bool = false
+    @Published public var chatEngine: String = "gemini-3.6-flash"
 
     private let baseURL = URL(string: "http://127.0.0.1:8000")!
     private var pollingCancellable: AnyCancellable?
@@ -253,4 +261,51 @@ public class BurnerAPIService: ObservableObject {
     public func forecastFor(providerId: ProviderID) -> SprintBurnForecast? {
         burnForecasts.first(where: { $0.provider_id == providerId })
     }
+
+    public func sendChatMessage(_ text: String) async {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let userMsg = ChatMessagePayload(role: "user", content: trimmed)
+        chatMessages.append(userMsg)
+        isChatLoading = true
+
+        let endpoint = baseURL.appendingPathComponent("/api/chat")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 12.0
+
+        let payload = ChatRequestPayload(messages: chatMessages)
+        do {
+            request.httpBody = try JSONEncoder().encode(payload)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                appendFallbackChatError()
+                isChatLoading = false
+                return
+            }
+
+            let decoder = JSONDecoder()
+            let chatRes = try decoder.decode(ChatResponsePayload.self, from: data)
+            chatMessages.append(chatRes.message)
+            chatEngine = chatRes.engine
+        } catch {
+            appendFallbackChatError()
+        }
+        isChatLoading = false
+    }
+
+    private func appendFallbackChatError() {
+        let top = providers.sorted(by: { $0.quota_remaining_percent > $1.quota_remaining_percent }).first
+        let topName = top?.name ?? "Codex"
+        let topPct = top != nil ? "\(Int(top!.quota_remaining_percent))%" : "high"
+        chatMessages.append(
+            ChatMessagePayload(
+                role: "assistant",
+                content: "I'm having trouble connecting to Gemini, but your live quotas show \(topName) currently has the safest headroom (\(topPct)). Route your next task there!"
+            )
+        )
+    }
 }
+

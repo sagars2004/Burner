@@ -199,3 +199,49 @@ public struct SimulatePayload: Codable {
     public let set_quota: Double?
     public let reset: Bool
 }
+
+public struct ChatMessagePayload: Codable, Identifiable {
+    public var id: String
+    public let role: String
+    public let content: String
+    public let timestamp: String?
+
+    public init(id: String = UUID().uuidString, role: String, content: String, timestamp: String? = nil) {
+        self.id = id
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case role
+        case content
+        case timestamp
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = (try? container.decode(String.self, forKey: .id)) ?? UUID().uuidString
+        self.role = try container.decode(String.self, forKey: .role)
+        self.content = try container.decode(String.self, forKey: .content)
+        self.timestamp = try? container.decode(String.self, forKey: .timestamp)
+    }
+}
+
+public struct ChatRequestPayload: Codable {
+    public let messages: [ChatMessagePayload]
+    public let task_context: String?
+
+    public init(messages: [ChatMessagePayload], task_context: String? = nil) {
+        self.messages = messages
+        self.task_context = task_context
+    }
+}
+
+public struct ChatResponsePayload: Codable {
+    public let message: ChatMessagePayload
+    public let engine: String
+    public let suggested_actions: [String]?
+}
+

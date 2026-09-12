@@ -5,6 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .models import (
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
     ProviderID,
     ProviderStatus,
     ProviderDetectionInfo,
@@ -111,6 +114,12 @@ def recommend_tool(task: TaskRequest):
 def optimize_prompt(req: PromptOptimizationRequest):
     quotas = adapter_manager.get_all_quotas(only_enabled=True)
     return agent.optimize_prompt(req, quotas)
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+def chat_with_agent(req: ChatRequest):
+    quotas = adapter_manager.get_all_quotas(only_enabled=True)
+    return agent.chat(req, quotas)
 
 
 @app.get("/api/forecast", response_model=List[SprintBurnForecast])

@@ -118,3 +118,22 @@ class SimulateRequest(BaseModel):
     quota_delta: Optional[float] = None
     set_quota: Optional[float] = None
     reset: bool = False
+
+
+class ChatMessage(BaseModel):
+    id: Optional[str] = None
+    role: str = "user"  # "user" | "assistant" | "system"
+    content: str
+    timestamp: Optional[str] = Field(default_factory=lambda: datetime.utcnow().isoformat())
+
+
+class ChatRequest(BaseModel):
+    messages: List[ChatMessage]
+    task_context: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    message: ChatMessage
+    engine: str = "gemini-3.6-flash"
+    suggested_actions: List[str] = Field(default_factory=list)
+

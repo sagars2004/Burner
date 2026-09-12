@@ -8,6 +8,9 @@ logging.getLogger("google_genai").setLevel(logging.ERROR)
 logging.getLogger("google.genai").setLevel(logging.ERROR)
 
 from .models import (
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
     ProviderID,
     ProviderQuota,
     ProviderStatus,
@@ -75,6 +78,19 @@ class BurnerAgent:
                 return res
 
         return self._optimize_with_heuristic(req, quotas)
+
+    def chat(self, req: ChatRequest, quotas: List[ProviderQuota]) -> ChatResponse:
+        """
+        Gemini-powered interactive quota copilot and AI strategy chatbot.
+        Informs developers of live quota statuses, rate-limit avoidance tactics,
+        and optimal model distribution for their coding tasks.
+        """
+        if self.gemini_key:
+            res = self._chat_with_gemini(req, quotas)
+            if res:
+                return res
+
+        return self._chat_with_fallback(req, quotas)
 
     def _check_burn_rate_alerts(self, quotas: List[ProviderQuota]) -> Optional[str]:
         for q in quotas:
@@ -472,3 +488,92 @@ Respond in valid JSON only with keys: recommended_provider, fallback_provider, c
             )
         except Exception:
             return None
+
+    def _chat_with_gemini(
+        self, req: ChatRequest, quotas: List[ProviderQuota]
+    ) -> Optional[ChatResponse]:
+        try:
+            from google import genai
+            from google.genai.models import Models
+            Models._logged_afc_warning = True
+            client = genai.Client(api_key=self.gemini_key)
+
+            quota_lines = []
+            for q in quotas:
+                mins = max(1, q.resets_in_seconds // 60)
+                quota_lines.append(
+                    f"- {q.name} ({q.provider_id.value}): {q.quota_remaining_percent:.0f}% remaining, resets in ~{mins}m, status: {q.status.value}"
+                )
+            quota_str = "\n".join(quota_lines)
+
+            history = []
+            for msg in req.messages[-6:]:
+                history.append(f"{msg.role.upper()}: {msg.content}")
+            conv_str = "\n".join(history)
+
+            system_instruction = f"""You are Burner Copilot, a tactical AI pair-programming advisor built into the Burner macOS status bar app.
+You have real-time access to the developer's local AI tool quotas:
+{quota_str}
+
+Your mission:
+1. Help the developer navigate free-tier and subscription rate limits.
+2. Recommend the best model/tool for their current coding task (Claude 3.5 Sonnet for deep architecture, Cursor for inline edits, Codex for boilerplate, Gemini 1.5/3 Flash for huge context).
+3. Suggest ways to conserve token burn during sprints.
+4. Keep answers punchy, practical, and under 3-4 sentences."""
+
+            prompt = f"{system_instruction}\n\nConversation so far:\n{conv_str}\n\nReply as Burner Copilot:"
+
+            response = client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=prompt
+            )
+            text = response.text.strip() if response and response.text else None
+            if not text:
+                return None
+
+            return ChatResponse(
+                message=ChatMessage(role="assistant", content=text),
+                engine="gemini-3.6-flash",
+                suggested_actions=["Check reset timing", "Optimize my prompt", "Save Claude quota"]
+            )
+        except Exception as e:
+            logging.warning(f"Gemini chat failed, falling back to local strategist: {e}")
+            return None
+
+    def _chat_with_fallback(
+        self, req: ChatRequest, quotas: List[ProviderQuota]
+    ) -> ChatResponse:
+        last_msg = req.messages[-1].content.lower() if req.messages else ""
+
+        sorted_quotas = sorted(quotas, key=lambda q: q.quota_remaining_percent, reverse=True)
+        top_quota = sorted_quotas[0] if sorted_quotas else None
+
+        if "claude" in last_msg or "sonnet" in last_msg:
+            claude_q = next((q for q in quotas if q.provider_id == ProviderID.CLAUDE), None)
+            if claude_q:
+                mins = max(1, claude_q.resets_in_seconds // 60)
+                content = f"Claude Sonnet has {claude_q.quota_remaining_percent:.0f}% quota remaining (resets in ~{mins}m). For quick edits or boilerplate, switch to Cursor or Codex to preserve your Claude turns for complex logic."
+            else:
+                content = "Claude is currently disabled. Toggle it in detected tools to monitor Sonnet headroom."
+        elif "reset" in last_msg or "time" in last_msg or "when" in last_msg:
+            resets = [f"{q.name}: ~{max(1, q.resets_in_seconds // 60)}m" for q in quotas[:3]]
+            content = f"Upcoming reset windows: {', '.join(resets)}. Your best headroom right now is {top_quota.name if top_quota else 'Codex'} at {top_quota.quota_remaining_percent if top_quota else 80:.0f}%."
+        elif "which" in last_msg or "recommend" in last_msg or "refactor" in last_msg or "edit" in last_msg:
+            if top_quota:
+                content = f"I recommend using **{top_quota.name}** right now—it has the highest headroom at {top_quota.quota_remaining_percent:.0f}%. Use it for high-volume edits, and reserve Claude for complex architectural tasks."
+            else:
+                content = "Cursor and Codex currently offer the safest headroom for general coding."
+        elif "quota" in last_msg or "limit" in last_msg or "save" in last_msg:
+            content = f"To preserve quota, route small edits to Cursor/Codex ({top_quota.quota_remaining_percent if top_quota else 85:.0f}% headroom). Reserve Claude Sonnet specifically for multi-file refactoring and architecture."
+        else:
+            if top_quota:
+                content = f"All systems operational! **{top_quota.name}** is your safest bet with {top_quota.quota_remaining_percent:.0f}% headroom. Budget ~15-20 prompts before your next reset window."
+            else:
+                content = "I'm monitoring your AI provider limits. Let me know what you're working on and I'll route you to the best model."
+
+        return ChatResponse(
+            message=ChatMessage(role="assistant", content=content),
+            engine="burner-local-strategist",
+            suggested_actions=["Check reset timing", "Optimize my prompt", "Save Claude quota"]
+        )
+
