@@ -4,6 +4,7 @@ public enum SideDrawerTab {
     case none
     case providers
     case optimizer
+    case handoff
 }
 
 public struct MainPopoverView: View {
@@ -74,7 +75,37 @@ public struct MainPopoverView: View {
 
                 Spacer()
 
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    // Hot-Swap Button (toggles side panel docked on the left)
+                    let isAnyCritical = apiService.providers.contains(where: { $0.status == .critical || $0.status == .exhausted })
+                    Button(action: {
+                        sidePanelManager.toggle(tab: .handoff)
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.swap")
+                                .font(.system(size: 10.5, weight: .bold))
+                            Text("Hot-Swap")
+                                .font(.system(size: 11, weight: .semibold))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(
+                            sidePanelManager.activeTab == .handoff
+                                ? Color.orange
+                                : (isAnyCritical ? Color.orange.opacity(0.3) : Color.orange.opacity(0.15))
+                        )
+                        .foregroundColor(sidePanelManager.activeTab == .handoff ? .black : .orange)
+                        .cornerRadius(5)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5)
+                                .stroke(isAnyCritical ? Color.orange.opacity(0.7) : Color.clear, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Hot-Swap Handoff Capsule: zero-loss model transition")
+
                     // Optimizer Button (toggles side panel docked on the left)
                     Button(action: {
                         sidePanelManager.toggle(tab: .optimizer)

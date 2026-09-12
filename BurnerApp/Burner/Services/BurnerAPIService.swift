@@ -24,6 +24,8 @@ public class BurnerAPIService: ObservableObject {
     ]
     @Published public var isChatLoading: Bool = false
     @Published public var chatEngine: String = "gemini-3.6-flash"
+    @Published public var activeHandoffCapsule: HandoffCapsuleResponsePayload?
+    @Published public var isGeneratingCapsule: Bool = false
 
     private let baseURL = URL(string: "http://127.0.0.1:8000")!
     private var pollingCancellable: AnyCancellable?
@@ -307,5 +309,45 @@ public class BurnerAPIService: ObservableObject {
             )
         )
     }
+
+    public func generateHandoffCapsule(
+        source: ProviderID,
+        target: ProviderID?,
+        taskSummary: String,
+        codeSnippet: String? = nil,
+        unresolvedIssues: String? = nil
+    ) async {
+        isGeneratingCapsule = true
+        let endpoint = baseURL.appendingPathComponent("/api/handoff-capsule")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 12.0
+
+        let payload = HandoffCapsuleRequestPayload(
+            source_provider: source,
+            target_provider: target,
+            task_summary: taskSummary,
+            code_snippet: codeSnippet,
+            unresolved_issues: unresolvedIssues
+        )
+
+        do {
+            request.httpBody = try JSONEncoder().encode(payload)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                isGeneratingCapsule = false
+                return
+            }
+
+            let decoder = JSONDecoder()
+            let res = try decoder.decode(HandoffCapsuleResponsePayload.self, from: data)
+            self.activeHandoffCapsule = res
+        } catch {
+            print("Failed to generate handoff capsule: \(error)")
+        }
+        isGeneratingCapsule = false
+    }
 }
+
 

@@ -8,6 +8,8 @@ from .models import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
+    HandoffCapsuleRequest,
+    HandoffCapsuleResponse,
     ProviderID,
     ProviderStatus,
     ProviderDetectionInfo,
@@ -120,6 +122,12 @@ def optimize_prompt(req: PromptOptimizationRequest):
 def chat_with_agent(req: ChatRequest):
     quotas = adapter_manager.get_all_quotas(only_enabled=True)
     return agent.chat(req, quotas)
+
+
+@app.post("/api/handoff-capsule", response_model=HandoffCapsuleResponse)
+def generate_handoff_capsule(req: HandoffCapsuleRequest):
+    quotas = adapter_manager.get_all_quotas(only_enabled=True)
+    return agent.generate_handoff_capsule(req, quotas)
 
 
 @app.get("/api/forecast", response_model=List[SprintBurnForecast])

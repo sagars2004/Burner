@@ -245,3 +245,36 @@ public struct ChatResponsePayload: Codable {
     public let suggested_actions: [String]?
 }
 
+public struct HandoffCapsuleRequestPayload: Codable {
+    public let source_provider: ProviderID
+    public let target_provider: ProviderID?
+    public let task_summary: String
+    public let code_snippet: String?
+    public let unresolved_issues: String?
+
+    public init(
+        source_provider: ProviderID,
+        target_provider: ProviderID? = nil,
+        task_summary: String,
+        code_snippet: String? = nil,
+        unresolved_issues: String? = nil
+    ) {
+        self.source_provider = source_provider
+        self.target_provider = target_provider
+        self.task_summary = task_summary
+        self.code_snippet = code_snippet
+        self.unresolved_issues = unresolved_issues
+    }
+}
+
+public struct HandoffCapsuleResponsePayload: Codable {
+    public let source_provider: ProviderID
+    public let target_provider: ProviderID
+    public let capsule_prompt: String
+    public let estimated_token_savings: Int
+    public let target_quota_headroom_pct: Double
+    public let launch_target: String
+    public let explanation: String
+}
+
+

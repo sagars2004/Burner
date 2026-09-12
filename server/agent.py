@@ -11,6 +11,8 @@ from .models import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
+    HandoffCapsuleRequest,
+    HandoffCapsuleResponse,
     ProviderID,
     ProviderQuota,
     ProviderStatus,
@@ -91,6 +93,21 @@ class BurnerAgent:
                 return res
 
         return self._chat_with_fallback(req, quotas)
+
+    def generate_handoff_capsule(
+        self, req: HandoffCapsuleRequest, quotas: List[ProviderQuota]
+    ) -> HandoffCapsuleResponse:
+        """
+        Cross-tool Hot-Swap Handoff Capsule generator.
+        When a developer hits a rate-limit wall or wants to transition tasks between models,
+        synthesizes code context, active bugs, and pending steps into a recipient-optimized prompt.
+        """
+        if self.gemini_key:
+            res = self._handoff_with_gemini(req, quotas)
+            if res:
+                return res
+
+        return self._handoff_with_fallback(req, quotas)
 
     def _check_burn_rate_alerts(self, quotas: List[ProviderQuota]) -> Optional[str]:
         for q in quotas:
@@ -576,4 +593,145 @@ Your mission:
             engine="burner-local-strategist",
             suggested_actions=["Check reset timing", "Optimize my prompt", "Save Claude quota"]
         )
+
+    def _handoff_with_gemini(
+        self, req: HandoffCapsuleRequest, quotas: List[ProviderQuota]
+    ) -> Optional[HandoffCapsuleResponse]:
+        try:
+            from google import genai
+            from google.genai.models import Models
+            Models._logged_afc_warning = True
+            client = genai.Client(api_key=self.gemini_key)
+
+            target_pid = req.target_provider
+            if not target_pid:
+                candidates = [q for q in quotas if q.provider_id != req.source_provider]
+                candidates.sort(key=lambda q: q.quota_remaining_percent, reverse=True)
+                target_pid = candidates[0].provider_id if candidates else ProviderID.CURSOR
+
+            target_quota = next((q for q in quotas if q.provider_id == target_pid), None)
+            target_headroom = target_quota.quota_remaining_percent if target_quota else 85.0
+            target_name = target_quota.name if target_quota else target_pid.value.capitalize()
+
+            source_quota = next((q for q in quotas if q.provider_id == req.source_provider), None)
+            source_name = source_quota.name if source_quota else req.source_provider.value.capitalize()
+
+            prompt = f"""You are the Burner AI Hot-Swap Handoff Agent.
+A developer's AI session on {source_name} has hit low quota or rate limits.
+Synthesize the session context into a crystal-clear, zero-loss "Handoff Capsule" prompt specifically formatted for the recipient tool: {target_name}.
+
+Session Details:
+- Source Provider (Depleted): {source_name}
+- Target Provider (Headroom {target_headroom}%): {target_name}
+- Task Objective: {req.task_summary}
+- Current Code State / Snippet: {req.code_snippet or "None provided"}
+- Unresolved Issues / Errors: {req.unresolved_issues or "None listed"}
+
+Requirements:
+1. Write a standalone prompt for {target_name} that allows it to continue coding immediately without asking the developer for clarifying questions.
+2. Structure it cleanly with markdown.
+3. Estimate input token savings (typically 1,500 to 4,000 tokens).
+
+Return valid JSON only:
+{{
+  "capsule_prompt": string,
+  "estimated_token_savings": integer,
+  "explanation": string
+}}"""
+
+            response = client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=prompt,
+                config={"response_mime_type": "application/json"}
+            )
+            data = json.loads(response.text)
+
+            launch_map = {
+                ProviderID.CLAUDE: "Claude",
+                ProviderID.CURSOR: "Cursor",
+                ProviderID.CODEX: "ChatGPT",
+                ProviderID.COPILOT: "Visual Studio Code",
+                ProviderID.GEMINI: "https://aistudio.google.com",
+            }
+
+            return HandoffCapsuleResponse(
+                source_provider=req.source_provider,
+                target_provider=target_pid,
+                capsule_prompt=data["capsule_prompt"],
+                estimated_token_savings=int(data.get("estimated_token_savings", 2400)),
+                target_quota_headroom_pct=target_headroom,
+                launch_target=launch_map.get(target_pid, "Cursor"),
+                explanation=data.get("explanation", f"Hot-Swapped seamlessly to {target_name} with {target_headroom}% headroom."),
+            )
+        except Exception as e:
+            logging.warning(f"Gemini handoff generation failed, falling back to local: {e}")
+            return None
+
+    def _handoff_with_fallback(
+        self, req: HandoffCapsuleRequest, quotas: List[ProviderQuota]
+    ) -> HandoffCapsuleResponse:
+        target_pid = req.target_provider
+        if not target_pid:
+            candidates = [q for q in quotas if q.provider_id != req.source_provider]
+            candidates.sort(key=lambda q: q.quota_remaining_percent, reverse=True)
+            target_pid = candidates[0].provider_id if candidates else ProviderID.CURSOR
+
+        target_quota = next((q for q in quotas if q.provider_id == target_pid), None)
+        target_headroom = target_quota.quota_remaining_percent if target_quota else 85.0
+        target_name = target_quota.name if target_quota else target_pid.value.capitalize()
+
+        source_quota = next((q for q in quotas if q.provider_id == req.source_provider), None)
+        source_name = source_quota.name if source_quota else req.source_provider.value.capitalize()
+
+        launch_map = {
+            ProviderID.CLAUDE: "Claude",
+            ProviderID.CURSOR: "Cursor",
+            ProviderID.CODEX: "ChatGPT",
+            ProviderID.COPILOT: "Visual Studio Code",
+            ProviderID.GEMINI: "https://aistudio.google.com",
+        }
+
+        code_block = f"\n```\n{req.code_snippet}\n```" if req.code_snippet else "*(Code context in active editor)*"
+        issues_block = f"\n- {req.unresolved_issues}" if req.unresolved_issues else "None - proceed with next implementation step."
+
+        if target_pid == ProviderID.CURSOR:
+            capsule = f"""// 🔄 BURNER HOT-SWAP CAPSULE: {source_name} ──► Cursor
+// Quota Alert: Transferred from {source_name} (limit reached). Target headroom: {target_headroom:.0f}%
+//
+// TASK OBJECTIVE:
+// {req.task_summary}
+//
+// UNRESOLVED ISSUES:
+{issues_block}
+//
+// CURRENT STATE:
+{req.code_snippet or "// Refer to open editor buffer"}
+//
+// DIRECTIVE: Continue implementation directly. Provide complete code without conversational preamble."""
+        else:
+            capsule = f"""# 🔄 HOT-SWAP CONTEXT HANDOFF: {source_name} ──► {target_name}
+> **Transferred by Burner**: {source_name} quota depleted. Continuing session on {target_name} ({target_headroom:.0f}% headroom).
+
+## 🎯 Task Objective
+{req.task_summary}
+
+## ⚡ Current Code State
+{code_block}
+
+## ⚠️ Unresolved Issues / Blockers
+{issues_block}
+
+## 🚀 Immediate Next Action
+Please continue directly from the code state above and resolve the listed blockers. Do not repeat existing boilerplate or ask for re-explanation."""
+
+        return HandoffCapsuleResponse(
+            source_provider=req.source_provider,
+            target_provider=target_pid,
+            capsule_prompt=capsule,
+            estimated_token_savings=2650,
+            target_quota_headroom_pct=target_headroom,
+            launch_target=launch_map.get(target_pid, "Cursor"),
+            explanation=f"Seamlessly hot-swapped from {source_name} to {target_name} ({target_headroom:.0f}% headroom).",
+        )
+
 

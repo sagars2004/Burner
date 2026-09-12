@@ -178,3 +178,22 @@ def test_chat_api():
     assert len(data["message"]["content"]) > 0
     assert data["engine"] in ["gemini-3.6-flash", "burner-local-strategist"]
 
+
+def test_handoff_capsule_api():
+    req = {
+        "source_provider": "claude",
+        "task_summary": "Refactor UserAuthToken to validate JWT expiration and refresh cookies",
+        "code_snippet": "class UserAuthToken:\n    def validate(self): pass",
+        "unresolved_issues": "Token signature mismatch on macOS keychain lookup"
+    }
+    res = client.post("/api/handoff-capsule", json=req)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["source_provider"] == "claude"
+    assert data["target_provider"] in ["cursor", "codex", "gemini", "copilot"]
+    assert len(data["capsule_prompt"]) > 50
+    assert data["estimated_token_savings"] > 0
+    assert data["target_quota_headroom_pct"] > 0
+    assert data["launch_target"] is not None
+
+

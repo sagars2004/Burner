@@ -137,3 +137,22 @@ class ChatResponse(BaseModel):
     engine: str = "gemini-3.6-flash"
     suggested_actions: List[str] = Field(default_factory=list)
 
+
+class HandoffCapsuleRequest(BaseModel):
+    source_provider: ProviderID
+    target_provider: Optional[ProviderID] = None
+    task_summary: str
+    code_snippet: Optional[str] = ""
+    unresolved_issues: Optional[str] = ""
+
+
+class HandoffCapsuleResponse(BaseModel):
+    source_provider: ProviderID
+    target_provider: ProviderID
+    capsule_prompt: str
+    estimated_token_savings: int
+    target_quota_headroom_pct: float
+    launch_target: str
+    explanation: str
+
+
