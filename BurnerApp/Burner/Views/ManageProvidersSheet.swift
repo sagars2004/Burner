@@ -15,11 +15,11 @@ public struct ManageProvidersSheet: View {
             HStack {
                 HStack(spacing: 6) {
                     Image(systemName: "gearshape.fill")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: 12.5, weight: .bold))
                         .foregroundColor(.gray)
 
                     Text("Manage AI Providers")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: 12.5, weight: .bold))
                         .foregroundColor(.white)
                 }
 
@@ -27,166 +27,173 @@ public struct ManageProvidersSheet: View {
 
                 Button(action: { isPresented = false }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: 13.5))
                         .foregroundColor(.gray)
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
             .background(Color.black.opacity(0.3))
 
             Divider().background(Color.white.opacity(0.1))
 
-            // Upper Scrollable Tools & Simulation Controls
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 14) {
-                    // Auto-Discovery Section
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("DETECTED TOOLS ON THIS MAC")
-                            .font(.system(size: 9.5, weight: .bold))
-                            .foregroundColor(.gray)
+            // Upper Tools & Simulation Controls (hugs intrinsic content height)
+            VStack(alignment: .leading, spacing: 10) {
+                // Auto-Discovery Section
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("DETECTED TOOLS ON THIS MAC")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.gray)
 
-                        Text("Burner automatically scans local app installs and sessions. Toggle below to show or hide them in your menu bar.")
-                            .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.7))
+                    Text("Auto-scans local installs and sessions. Toggle to show or hide in menu bar.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.7))
 
-                        VStack(spacing: 6) {
-                            ForEach(apiService.detectedProviders) { info in
-                                HStack(spacing: 10) {
-                                    Image(systemName: info.provider_id.iconName)
-                                        .font(.system(size: 12))
-                                        .foregroundColor(info.provider_id.brandColor)
-                                        .frame(width: 20)
+                    VStack(spacing: 4) {
+                        ForEach(apiService.detectedProviders) { info in
+                            HStack(spacing: 8) {
+                                Image(systemName: info.provider_id.iconName)
+                                    .font(.system(size: 11.5))
+                                    .foregroundColor(info.provider_id.brandColor)
+                                    .frame(width: 18)
 
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        HStack(spacing: 4) {
-                                            Text(info.name)
-                                                .font(.system(size: 12, weight: .semibold))
-                                                .foregroundColor(.white)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    HStack(spacing: 4) {
+                                        Text(info.name)
+                                            .font(.system(size: 11.5, weight: .semibold))
+                                            .foregroundColor(.white)
 
-                                            if info.is_detected {
-                                                Image(systemName: "checkmark.circle.fill")
-                                                    .font(.system(size: 10))
-                                                    .foregroundColor(.green)
-                                            }
-                                        }
-
-                                        if let firstReason = info.detection_reasons.first {
-                                            Text(firstReason)
+                                        if info.is_detected {
+                                            Image(systemName: "checkmark.circle.fill")
                                                 .font(.system(size: 9.5))
-                                                .foregroundColor(.gray)
-                                                .lineLimit(1)
+                                                .foregroundColor(.green)
                                         }
                                     }
 
-                                    Spacer()
+                                    if let firstReason = info.detection_reasons.first {
+                                        Text(cleanReason(firstReason))
+                                            .font(.system(size: 9))
+                                            .foregroundColor(.gray)
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.85)
+                                    }
+                                }
 
-                                    Toggle("", isOn: Binding(
-                                        get: { info.is_enabled },
-                                        set: { newVal in
-                                            Task {
-                                                await apiService.toggleProvider(providerId: info.provider_id, enabled: newVal)
-                                            }
+                                Spacer()
+
+                                Toggle("", isOn: Binding(
+                                    get: { info.is_enabled },
+                                    set: { newVal in
+                                        Task {
+                                            await apiService.toggleProvider(providerId: info.provider_id, enabled: newVal)
                                         }
-                                    ))
-                                    .toggleStyle(.switch)
-                                    .labelsHidden()
-                                    .scaleEffect(0.75)
-                                }
-                                .padding(10)
-                                .background(Color.white.opacity(0.04))
-                                .cornerRadius(8)
+                                    }
+                                ))
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                                .scaleEffect(0.68)
                             }
-                        }
-                    }
-
-                    Divider().background(Color.white.opacity(0.08))
-
-                    // Hackathon Simulation Deck
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.system(size: 11))
-                                .foregroundColor(.purple)
-                            Text("HACKATHON DEMO CONTROLS")
-                                .font(.system(size: 9.5, weight: .bold))
-                                .foregroundColor(.gray)
-                        }
-
-                        Text("Test Burner's proactive rate-limit routing by simulating quota consumption.")
-                            .font(.system(size: 10.5))
-                            .foregroundColor(.white.opacity(0.7))
-
-                        HStack(spacing: 8) {
-                            Button(action: {
-                                Task {
-                                    await apiService.simulateDelta(providerId: "claude", delta: -25.0)
-                                }
-                            }) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "flame")
-                                        .font(.system(size: 10))
-                                    Text("Burn Claude -25%")
-                                        .font(.system(size: 10.5, weight: .medium))
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
-                                .background(Color.orange.opacity(0.2))
-                                .foregroundColor(.orange)
-                                .cornerRadius(6)
-                            }
-                            .buttonStyle(.plain)
-
-                            Button(action: {
-                                Task {
-                                    await apiService.simulateDelta(providerId: "claude", delta: -50.0)
-                                }
-                            }) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "exclamationmark.triangle")
-                                        .font(.system(size: 10))
-                                    Text("Critical Drop")
-                                        .font(.system(size: 10.5, weight: .medium))
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
-                                .background(Color.red.opacity(0.2))
-                                .foregroundColor(.red)
-                                .cornerRadius(6)
-                            }
-                            .buttonStyle(.plain)
-
-                            Button(action: {
-                                Task {
-                                    await apiService.resetSimulation()
-                                }
-                            }) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "arrow.counterclockwise")
-                                        .font(.system(size: 10))
-                                    Text("Reset Real Data")
-                                        .font(.system(size: 10.5, weight: .medium))
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
-                                .background(Color.white.opacity(0.08))
-                                .foregroundColor(.white)
-                                .cornerRadius(6)
-                            }
-                            .buttonStyle(.plain)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(Color.white.opacity(0.04))
+                            .cornerRadius(7)
                         }
                     }
                 }
-                .padding(14)
+
+                Divider().background(Color.white.opacity(0.08))
+
+                // Hackathon Simulation Deck
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 10))
+                            .foregroundColor(.purple)
+                        Text("HACKATHON DEMO CONTROLS")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.gray)
+                    }
+
+                    Text("Simulate quota drops to test Burner's proactive rate-limit routing.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.7))
+
+                    HStack(spacing: 6) {
+                        Button(action: {
+                            Task {
+                                await apiService.simulateDelta(providerId: "claude", delta: -25.0)
+                            }
+                        }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "flame")
+                                    .font(.system(size: 9.5))
+                                Text("Burn Claude -25%")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .lineLimit(1)
+                                    .fixedSize()
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 5)
+                            .background(Color.orange.opacity(0.2))
+                            .foregroundColor(.orange)
+                            .cornerRadius(5)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(action: {
+                            Task {
+                                await apiService.simulateDelta(providerId: "claude", delta: -50.0)
+                            }
+                        }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 9.5))
+                                Text("Critical Drop")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .lineLimit(1)
+                                    .fixedSize()
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 5)
+                            .background(Color.red.opacity(0.2))
+                            .foregroundColor(.red)
+                            .cornerRadius(5)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(action: {
+                            Task {
+                                await apiService.resetSimulation()
+                            }
+                        }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.counterclockwise")
+                                    .font(.system(size: 9.5))
+                                Text("Reset Real Data")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .lineLimit(1)
+                                    .fixedSize()
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 5)
+                            .background(Color.white.opacity(0.08))
+                            .foregroundColor(.white)
+                            .cornerRadius(5)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, 12)
+            .padding(.top, 9)
+            .padding(.bottom, 10)
 
             Divider().background(Color.white.opacity(0.12))
 
-            // Fixed-Height Gemini Chatbot Section at the Bottom
+            // Expanded Gemini Chatbot Section taking all remaining vertical height
             GeminiChatView(apiService: apiService)
-                .frame(height: 250)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
@@ -195,6 +202,21 @@ public struct ManageProvidersSheet: View {
                 Rectangle().fill(.ultraThinMaterial)
             }
         )
+    }
+
+    private func cleanReason(_ reason: String) -> String {
+        var text = reason
+        text = text.replacingOccurrences(of: "/Applications/Visual Studio Code.app", with: "VS Code.app")
+        text = text.replacingOccurrences(of: "/Applications/Claude.app", with: "Claude.app")
+        text = text.replacingOccurrences(of: "/Applications/Cursor.app", with: "Cursor.app")
+        text = text.replacingOccurrences(of: "/Applications/ChatGPT.app", with: "ChatGPT.app")
+        text = text.replacingOccurrences(of: "Desktop app installed: ", with: "Installed: ")
+        text = text.replacingOccurrences(of: "Editor installed: ", with: "Installed: ")
+        text = text.replacingOccurrences(of: "ChatGPT desktop app: ", with: "Installed: ")
+        text = text.replacingOccurrences(of: "Gemini Studio Key configured in environment", with: "Studio key in environment")
+        text = text.replacingOccurrences(of: "OpenAI API key configured in environment", with: "API key in environment")
+        text = text.replacingOccurrences(of: "VS Code Copilot extension state found", with: "VS Code Copilot extension")
+        return text
     }
 }
 

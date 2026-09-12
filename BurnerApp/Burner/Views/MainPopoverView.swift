@@ -48,26 +48,26 @@ public struct MainPopoverView: View {
     private var mainPanelContent: some View {
         VStack(spacing: 0) {
             // Top Navigation Bar
-            HStack(spacing: 10) {
-                HStack(spacing: 7) {
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Image(systemName: "flame.fill")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundColor(.orange)
 
                     Text("Burner")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundColor(.white)
                         .lineLimit(1)
                         .fixedSize()
 
                     Circle()
                         .fill(apiService.overallStatus.color)
-                        .frame(width: 7, height: 7)
+                        .frame(width: 6, height: 6)
 
                     Text(apiService.overallStatus.rawValue.capitalized)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 9.5, weight: .semibold))
                         .foregroundColor(apiService.overallStatus.color)
-                        .padding(.horizontal, 6)
+                        .padding(.horizontal, 5)
                         .padding(.vertical, 2)
                         .background(apiService.overallStatus.color.opacity(0.15))
                         .cornerRadius(4)
@@ -77,22 +77,43 @@ public struct MainPopoverView: View {
 
                 Spacer()
 
-                HStack(spacing: 6) {
-                    // Hot-Swap Button (toggles side panel docked on the left)
+                HStack(spacing: 5) {
+                    // Optimizer Button (Cyan)
+                    Button(action: {
+                        sidePanelManager.toggle(tab: .optimizer)
+                    }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "wand.and.stars")
+                                .font(.system(size: 9.5, weight: .bold))
+                            Text("Optimizer")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3.5)
+                        .background(sidePanelManager.activeTab == .optimizer ? Color.cyan : Color.cyan.opacity(0.18))
+                        .foregroundColor(sidePanelManager.activeTab == .optimizer ? .black : .cyan)
+                        .cornerRadius(5)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open AI Prompt Optimizer on left")
+
+                    // Hot-Swap Button (Orange)
                     let isAnyCritical = apiService.providers.contains(where: { $0.status == .critical || $0.status == .exhausted })
                     Button(action: {
                         sidePanelManager.toggle(tab: .handoff)
                     }) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 3) {
                             Image(systemName: "arrow.triangle.swap")
-                                .font(.system(size: 10.5, weight: .bold))
+                                .font(.system(size: 9.5, weight: .bold))
                             Text("Hot-Swap")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: 10.5, weight: .semibold))
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: false)
                         }
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3.5)
                         .background(
                             sidePanelManager.activeTab == .handoff
                                 ? Color.orange
@@ -108,89 +129,47 @@ public struct MainPopoverView: View {
                     .buttonStyle(.plain)
                     .help("Hot-Swap Handoff Capsule: zero-loss model transition")
 
-                    // Optimizer Button (toggles side panel docked on the left)
-                    Button(action: {
-                        sidePanelManager.toggle(tab: .optimizer)
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "wand.and.stars")
-                                .font(.system(size: 11, weight: .bold))
-                            Text("Optimizer")
-                                .font(.system(size: 11, weight: .semibold))
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(sidePanelManager.activeTab == .optimizer ? Color.cyan : Color.cyan.opacity(0.2))
-                        .foregroundColor(sidePanelManager.activeTab == .optimizer ? .black : .cyan)
-                        .cornerRadius(5)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Open AI Prompt Optimizer on left")
-
-                    // Trimmer Button (toggles side panel docked on the left)
+                    // Trimmer Button (Green)
                     Button(action: {
                         sidePanelManager.toggle(tab: .trimmer)
                     }) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 3) {
                             Image(systemName: "scissors")
-                                .font(.system(size: 10.5, weight: .bold))
+                                .font(.system(size: 9.5, weight: .bold))
                             Text("Trimmer")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: 10.5, weight: .semibold))
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: false)
                         }
                         .padding(.horizontal, 6)
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 3.5)
                         .background(sidePanelManager.activeTab == .trimmer ? Color.green : Color.green.opacity(0.18))
-                        .foregroundColor(sidePanelManager.activeTab == .trimmer ? .black : .green)
+                        .foregroundColor(sidePanelManager.activeTab == .trimmer ? .black : Color(red: 0.3, green: 0.9, blue: 0.6))
                         .cornerRadius(5)
                     }
                     .buttonStyle(.plain)
                     .help("Code Trimmer & Token Reducer (-60% to -80% prompt burn)")
 
-                    // Planner Button (toggles side panel docked on the left)
+                    // Planner Button (Purple)
                     Button(action: {
                         sidePanelManager.toggle(tab: .planner)
                     }) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 3) {
                             Image(systemName: "calendar.badge.clock")
-                                .font(.system(size: 10.5, weight: .bold))
+                                .font(.system(size: 9.5, weight: .bold))
                             Text("Planner")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: 10.5, weight: .semibold))
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: false)
                         }
                         .padding(.horizontal, 6)
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 3.5)
                         .background(sidePanelManager.activeTab == .planner ? Color.purple : Color.purple.opacity(0.18))
-                        .foregroundColor(sidePanelManager.activeTab == .planner ? .black : Color(red: 0.75, green: 0.55, blue: 0.95))
+                        .foregroundColor(sidePanelManager.activeTab == .planner ? .black : Color(red: 0.8, green: 0.6, blue: 1.0))
                         .cornerRadius(5)
                     }
                     .buttonStyle(.plain)
                     .help("Autonomous Sprint Token Planner: multi-model pipeline")
-
-                    // Providers Button (toggles side panel docked on the left)
-                    Button(action: {
-                        sidePanelManager.toggle(tab: .providers)
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "gearshape")
-                                .font(.system(size: 11, weight: .semibold))
-                            Text("Providers")
-                                .font(.system(size: 11, weight: .medium))
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(sidePanelManager.activeTab == .providers ? Color.white.opacity(0.2) : Color.white.opacity(0.06))
-                        .foregroundColor(sidePanelManager.activeTab == .providers ? .white : .gray)
-                        .cornerRadius(5)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Manage Detected Providers on left")
 
                     // Refresh Button
                     Button(action: {
@@ -200,9 +179,9 @@ public struct MainPopoverView: View {
                         }
                     }) {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 12))
+                            .font(.system(size: 11))
                             .foregroundColor(.gray)
-                            .padding(4)
+                            .padding(3)
                     }
                     .buttonStyle(.plain)
                     .help("Refresh Quotas")
@@ -212,16 +191,16 @@ public struct MainPopoverView: View {
                         NSApplication.shared.terminate(nil)
                     }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
+                            .font(.system(size: 13))
                             .foregroundColor(.gray.opacity(0.7))
-                            .padding(4)
+                            .padding(3)
                     }
                     .buttonStyle(.plain)
                     .help("Quit Burner")
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             .background(Color.black.opacity(0.35))
 
             Divider().background(Color.white.opacity(0.08))
@@ -434,25 +413,6 @@ public struct MainPopoverView: View {
             // Footer Bar
             HStack(spacing: 12) {
                 Button(action: {
-                    sidePanelManager.toggle(tab: .optimizer)
-                }) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "wand.and.stars")
-                            .font(.system(size: 10.5))
-                        Text(sidePanelManager.activeTab == .optimizer ? "Hide Optimizer" : "Prompt Optimizer")
-                            .font(.system(size: 11, weight: .semibold))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(sidePanelManager.activeTab == .optimizer ? Color.cyan.opacity(0.3) : Color.white.opacity(0.06))
-                    .foregroundColor(sidePanelManager.activeTab == .optimizer ? .cyan : .white)
-                    .cornerRadius(5)
-                }
-                .buttonStyle(.plain)
-
-                Button(action: {
                     sidePanelManager.toggle(tab: .providers)
                 }) {
                     HStack(spacing: 4) {
@@ -463,13 +423,14 @@ public struct MainPopoverView: View {
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
                     }
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, 9)
                     .padding(.vertical, 5)
-                    .background(sidePanelManager.activeTab == .providers ? Color.white.opacity(0.15) : Color.white.opacity(0.04))
-                    .foregroundColor(.gray)
+                    .background(sidePanelManager.activeTab == .providers ? Color.white.opacity(0.18) : Color.white.opacity(0.06))
+                    .foregroundColor(sidePanelManager.activeTab == .providers ? .white : .gray)
                     .cornerRadius(5)
                 }
                 .buttonStyle(.plain)
+                .help("Manage Detected AI Tools & Quotas")
 
                 Spacer()
 
@@ -479,7 +440,7 @@ public struct MainPopoverView: View {
 
                 CornerResizeGrip()
             }
-            .padding(.leading, 16)
+            .padding(.leading, 14)
             .padding(.trailing, 6)
             .padding(.vertical, 6)
             .background(Color.black.opacity(0.25))

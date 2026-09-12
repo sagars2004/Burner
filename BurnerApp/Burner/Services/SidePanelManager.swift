@@ -106,6 +106,7 @@ public class SidePanelManager: ObservableObject {
 
 public struct SidePanelContainerView: View {
     @ObservedObject public var apiService: BurnerAPIService
+    @ObservedObject private var sidePanelManager = SidePanelManager.shared
     public let activeTab: SideDrawerTab
     public let onClose: () -> Void
 
@@ -116,47 +117,49 @@ public struct SidePanelContainerView: View {
     }
 
     public var body: some View {
-        Group {
-            if activeTab == .providers {
-                ManageProvidersSheet(
-                    apiService: apiService,
-                    isPresented: Binding(
-                        get: { true },
-                        set: { if !$0 { onClose() } }
+        VStack(spacing: 0) {
+            Group {
+                if sidePanelManager.activeTab == .providers {
+                    ManageProvidersSheet(
+                        apiService: apiService,
+                        isPresented: Binding(
+                            get: { true },
+                            set: { if !$0 { onClose() } }
+                        )
                     )
-                )
-            } else if activeTab == .optimizer {
-                PromptOptimizerView(
-                    apiService: apiService,
-                    isPresented: Binding(
-                        get: { true },
-                        set: { if !$0 { onClose() } }
+                } else if sidePanelManager.activeTab == .optimizer {
+                    PromptOptimizerView(
+                        apiService: apiService,
+                        isPresented: Binding(
+                            get: { true },
+                            set: { if !$0 { onClose() } }
+                        )
                     )
-                )
-            } else if activeTab == .handoff {
-                HotSwapHandoffView(
-                    apiService: apiService,
-                    isPresented: Binding(
-                        get: { true },
-                        set: { if !$0 { onClose() } }
+                } else if sidePanelManager.activeTab == .handoff {
+                    HotSwapHandoffView(
+                        apiService: apiService,
+                        isPresented: Binding(
+                            get: { true },
+                            set: { if !$0 { onClose() } }
+                        )
                     )
-                )
-            } else if activeTab == .trimmer {
-                CodeTrimmerView(
-                    apiService: apiService,
-                    isPresented: Binding(
-                        get: { true },
-                        set: { if !$0 { onClose() } }
+                } else if sidePanelManager.activeTab == .trimmer {
+                    CodeTrimmerView(
+                        apiService: apiService,
+                        isPresented: Binding(
+                            get: { true },
+                            set: { if !$0 { onClose() } }
+                        )
                     )
-                )
-            } else if activeTab == .planner {
-                SprintPlannerView(
-                    apiService: apiService,
-                    isPresented: Binding(
-                        get: { true },
-                        set: { if !$0 { onClose() } }
+                } else if sidePanelManager.activeTab == .planner {
+                    SprintPlannerView(
+                        apiService: apiService,
+                        isPresented: Binding(
+                            get: { true },
+                            set: { if !$0 { onClose() } }
+                        )
                     )
-                )
+                }
             }
         }
         .frame(width: 380)
