@@ -36,6 +36,27 @@ class BurnerStore:
                 CREATE INDEX IF NOT EXISTS idx_provider_time 
                 ON usage_samples (provider_id, timestamp)
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS provider_settings (
+                    provider_id TEXT PRIMARY KEY,
+                    is_enabled INTEGER NOT NULL
+                )
+            """)
+            conn.commit()
+
+    def get_all_provider_settings(self) -> Dict[str, bool]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT provider_id, is_enabled FROM provider_settings").fetchall()
+        return {row["provider_id"]: bool(row["is_enabled"]) for row in rows}
+
+    def set_provider_enabled(self, provider_id: str, enabled: bool):
+        val = 1 if enabled else 0
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT INTO provider_settings (provider_id, is_enabled)
+                VALUES (?, ?)
+                ON CONFLICT(provider_id) DO UPDATE SET is_enabled = excluded.is_enabled
+            """, (provider_id, val))
             conn.commit()
 
     def record_sample(self, provider_id: str, quota_remaining: float, plan_name: str = "Free Tier", timestamp: Optional[float] = None):

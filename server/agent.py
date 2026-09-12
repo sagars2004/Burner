@@ -6,11 +6,14 @@ from typing import Dict, List, Optional, Tuple
 # Suppress google-genai library info/warning messages
 logging.getLogger("google_genai").setLevel(logging.ERROR)
 logging.getLogger("google.genai").setLevel(logging.ERROR)
+
 from .models import (
     ProviderID,
     ProviderQuota,
     ProviderStatus,
     RoutingRecommendation,
+    PromptOptimizationRequest,
+    PromptOptimizationResponse,
     TaskRequest,
     TaskType,
 )
@@ -21,7 +24,8 @@ class BurnerAgent:
     The reasoning layer of Burner.
     Combines task requirements, provider quota headroom, reset window cadences,
     and burn-rate trajectory into an actionable routing decision.
-    Supports Google Gemini (via Google Cloud), NVIDIA NIM, and robust local heuristic fallback.
+    Also provides active Prompt Optimization and Token Budgeting for real-world developer workflows.
+    Supports Google Gemini (via Google AI Studio Free Tier), NVIDIA NIM, and robust local heuristic fallback.
     """
 
     def __init__(self):
@@ -54,8 +58,23 @@ class BurnerAgent:
             if rec:
                 return rec
 
-        # Step 3: Fast, deterministic local heuristic engine (always available)
+        # Step 3: Fast, deterministic local heuristic engine (always available, 0ms, zero keys needed)
         return self._recommend_with_heuristic(task, quotas, burn_warning)
+
+    def optimize_prompt(
+        self, req: PromptOptimizationRequest, quotas: List[ProviderQuota]
+    ) -> PromptOptimizationResponse:
+        """
+        AI Prompt Optimizer & Context Window Budgeter.
+        Transforms raw, unoptimized coding tasks into high-precision, token-budgeted prompts
+        specifically tailored to the recommended provider's architecture and remaining headroom.
+        """
+        if self.gemini_key:
+            res = self._optimize_with_gemini(req, quotas)
+            if res:
+                return res
+
+        return self._optimize_with_heuristic(req, quotas)
 
     def _check_burn_rate_alerts(self, quotas: List[ProviderQuota]) -> Optional[str]:
         for q in quotas:
@@ -72,32 +91,39 @@ class BurnerAgent:
         quotas: List[ProviderQuota],
         burn_warning: Optional[str],
     ) -> RoutingRecommendation:
-        quota_map: Dict[ProviderID, ProviderQuota] = {q.provider_id: q for q in quotas}
+        if not quotas:
+            return RoutingRecommendation(
+                recommended_provider=ProviderID.CLAUDE,
+                fallback_provider=ProviderID.CURSOR,
+                confidence=0.8,
+                headline="No active providers detected",
+                reasoning="Enable at least one provider in settings.",
+                suggested_model="Claude 3.5 Sonnet",
+                reasoning_engine="burner-heuristic",
+            )
 
-        # Calculate fitness scores for each provider
+        quota_map: Dict[ProviderID, ProviderQuota] = {q.provider_id: q for q in quotas}
         scores: Dict[ProviderID, float] = {}
 
         for pid, q in quota_map.items():
             if q.quota_remaining_percent <= 5.0:
-                scores[pid] = -100.0  # basically exhausted
+                scores[pid] = -100.0  # essentially exhausted
                 continue
 
             score = q.quota_remaining_percent * 0.5  # base score from headroom
 
-            # Reset window bonus: if it resets within 45 min and has headroom, prioritize using it
+            # Reset window bonus: if resetting within 45 min and has headroom, prioritize spending it
             if q.resets_in_seconds < 45 * 60 and q.quota_remaining_percent > 25.0:
                 score += 30.0
 
             # Task affinity bonuses
             if task.task_type == TaskType.QUICK_EDIT:
-                # Small fixes: favor Cursor fast requests or Copilot
                 if pid in (ProviderID.CURSOR, ProviderID.COPILOT):
                     score += 40.0
                 elif pid in (ProviderID.CLAUDE, ProviderID.GEMINI):
-                    score -= 20.0  # Don't waste heavy quota on quick fixes
+                    score -= 20.0
 
             elif task.task_type in (TaskType.REFACTOR, TaskType.ARCHITECTURE):
-                # Heavy reasoning: favor Claude 3.5 Sonnet and Gemini Pro
                 if pid == ProviderID.CLAUDE:
                     score += 45.0
                 elif pid == ProviderID.GEMINI:
@@ -106,7 +132,6 @@ class BurnerAgent:
                     score -= 15.0
 
             elif task.task_type == TaskType.BOILERPLATE:
-                # Tests and boilerplate: favor Codex or Copilot
                 if pid in (ProviderID.CODEX, ProviderID.COPILOT):
                     score += 35.0
                 elif pid == ProviderID.CURSOR:
@@ -116,12 +141,11 @@ class BurnerAgent:
 
         sorted_providers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         best_pid = sorted_providers[0][0]
-        fallback_pid = sorted_providers[1][0] if len(sorted_providers) > 1 else ProviderID.CURSOR
+        fallback_pid = sorted_providers[1][0] if len(sorted_providers) > 1 else best_pid
 
         best_quota = quota_map[best_pid]
         fallback_quota = quota_map[fallback_pid]
 
-        # Formulate human-centric reasoning
         headline, reasoning, model_name = self._generate_heuristic_narrative(
             task.task_type, best_quota, fallback_quota, burn_warning
         )
@@ -197,6 +221,173 @@ class BurnerAgent:
             reasoning = f"⚠️ Limit Avoidance Triggered: {burn_warning} " + reasoning
 
         return headline, reasoning, suggested_model
+
+    def _optimize_with_heuristic(
+        self, req: PromptOptimizationRequest, quotas: List[ProviderQuota]
+    ) -> PromptOptimizationResponse:
+        quota_dict = {q.provider_id: q for q in quotas}
+
+        # Select target provider
+        if req.target_provider and req.target_provider in quota_dict:
+            target_pid = req.target_provider
+        else:
+            # Route to highest headroom or best fit
+            default_task = TaskRequest(task_type=req.task_type, prompt_preview=req.prompt)
+            rec = self.recommend(default_task, quotas)
+            target_pid = rec.recommended_provider
+
+        target_quota = quota_dict.get(
+            target_pid,
+            ProviderQuota(
+                provider_id=target_pid,
+                name=target_pid.value.capitalize(),
+                quota_remaining_percent=100.0,
+                resets_in_seconds=3600,
+                status=ProviderStatus.HEALTHY,
+            ),
+        )
+
+        words = req.prompt.strip().split()
+        word_count = len(words)
+        est_input_tokens = max(40, int(word_count * 1.35) + 120)
+        est_output_tokens = 650 if req.task_type in (TaskType.QUICK_EDIT, TaskType.BOILERPLATE) else 1200
+
+        # Formulate tailored optimized prompt based on target provider's strength
+        raw = req.prompt.strip()
+        if target_pid == ProviderID.CLAUDE:
+            model = "Claude 3.5 Sonnet"
+            launch = "Claude"
+            optimized = (
+                f"You are an expert systems architect and engineer. Implement the following task with precision:\n\n"
+                f"### Context & Objective\n{raw}\n\n"
+                f"### Requirements\n"
+                f"1. Provide a clean, minimal code diff or complete replacement functions.\n"
+                f"2. Handle edge cases, nil safety, and boundary conditions explicitly.\n"
+                f"3. Do not omit code with placeholders or '// ... remaining code'.\n"
+                f"4. Add unit test assertions verifying correctness."
+            )
+            explanation = "Structured with explicit diff constraints, edge-case coverage, and zero-truncation directives for Claude 3.5 Sonnet."
+
+        elif target_pid == ProviderID.CURSOR:
+            model = "Cursor Fast (Claude 3.5)"
+            launch = "Cursor"
+            optimized = (
+                f"// TASK: {raw}\n"
+                f"// RULES:\n"
+                f"// - Make targeted in-place edits only.\n"
+                f"// - Preserve existing signatures, imports, and docstrings.\n"
+                f"// - Avoid conversational commentary; output production-ready code directly."
+            )
+            explanation = "Formatted with concise inline cursor-directive syntax to save tokens and minimize completion latency."
+
+        elif target_pid == ProviderID.CODEX:
+            model = "GPT-4o mini"
+            launch = "ChatGPT"
+            optimized = (
+                f"Write robust, typed Python/TypeScript code for the following specification:\n\n"
+                f"{raw}\n\n"
+                f"Include docstrings, type annotations, and full pytest/jest test coverage."
+            )
+            explanation = "Optimized for GPT-4o with rigorous typing and full automated test suite boilerplate."
+
+        elif target_pid == ProviderID.GEMINI:
+            model = "Gemini 1.5 Pro"
+            launch = "https://aistudio.google.com"
+            optimized = (
+                f"Analyze and implement the following full-stack task within a large repository context:\n\n"
+                f"{raw}\n\n"
+                f"Provide an architectural breakdown, step-by-step implementation, and integration test strategy."
+            )
+            explanation = "Structured for Gemini's deep 2M-token context window and multi-file architectural reasoning."
+
+        else:
+            model = "GitHub Copilot"
+            launch = "Visual Studio Code"
+            optimized = f"// Implementation: {raw}\n// Ensure strict types and clean error handling."
+            explanation = "Tailored for inline Copilot generation in VS Code."
+
+        # Token budget calculation
+        headroom = target_quota.quota_remaining_percent
+        pct_cost = round((est_input_tokens + est_output_tokens) / 80000.0 * 100.0, 2)
+        budget_rec = f"Consumes ~{pct_cost}% of {target_quota.name} window ({headroom}% headroom remaining)."
+
+        return PromptOptimizationResponse(
+            recommended_provider=target_pid,
+            original_prompt=req.prompt,
+            optimized_prompt=optimized,
+            suggested_model=model,
+            estimated_input_tokens=est_input_tokens,
+            estimated_output_tokens=est_output_tokens,
+            token_budget_recommendation=budget_rec,
+            provider_quota_headroom_pct=headroom,
+            launch_target=launch,
+            explanation=explanation,
+        )
+
+    def _optimize_with_gemini(
+        self, req: PromptOptimizationRequest, quotas: List[ProviderQuota]
+    ) -> Optional[PromptOptimizationResponse]:
+        try:
+            from google import genai
+            from google.genai.models import Models
+            Models._logged_afc_warning = True
+            client = genai.Client(api_key=self.gemini_key)
+
+            system_prompt = f"""
+You are the Burner AI Prompt Optimizer & Context Window Budgeting Agent.
+A developer submitted this raw coding task:
+"{req.prompt}"
+
+Task Category: {req.task_type.value}
+Target Provider Request: {req.target_provider.value if req.target_provider else "Auto-Select Optimal"}
+
+Current Connected Quotas:
+{json.dumps([q.model_dump() for q in quotas], indent=2)}
+
+Your task:
+1. Select the optimal provider from (claude, cursor, codex, gemini, copilot) based on task complexity and remaining quota headroom.
+2. Rewrite the prompt into a high-precision, production-grade prompt specifically tailored for that model to succeed in ONE single turn (avoiding costly back-and-forth prompt burning).
+3. Estimate input tokens and output tokens.
+4. Provide a token budget recommendation relative to remaining quota headroom.
+
+Return JSON only:
+{{
+  "recommended_provider": "claude" | "cursor" | "codex" | "gemini" | "copilot",
+  "suggested_model": string,
+  "optimized_prompt": string,
+  "estimated_input_tokens": integer,
+  "estimated_output_tokens": integer,
+  "token_budget_recommendation": string,
+  "launch_target": string,
+  "explanation": string
+}}
+"""
+            response = client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=system_prompt,
+                config={"response_mime_type": "application/json"}
+            )
+            data = json.loads(response.text)
+            rec_pid = ProviderID(data["recommended_provider"])
+            target_quota = next((q for q in quotas if q.provider_id == rec_pid), None)
+            headroom = target_quota.quota_remaining_percent if target_quota else 100.0
+
+            return PromptOptimizationResponse(
+                recommended_provider=rec_pid,
+                original_prompt=req.prompt,
+                optimized_prompt=data["optimized_prompt"],
+                suggested_model=data.get("suggested_model", "Optimal Model"),
+                estimated_input_tokens=int(data.get("estimated_input_tokens", 150)),
+                estimated_output_tokens=int(data.get("estimated_output_tokens", 800)),
+                token_budget_recommendation=data.get(
+                    "token_budget_recommendation", f"Safe: {headroom}% headroom available"
+                ),
+                provider_quota_headroom_pct=headroom,
+                launch_target=data.get("launch_target", rec_pid.value.capitalize()),
+                explanation=data.get("explanation", "Optimized with Gemini 3.6 Flash for maximum first-turn accuracy."),
+            )
+        except Exception:
+            return None
 
     def _recommend_with_gemini(
         self, task: TaskRequest, quotas: List[ProviderQuota], burn_warning: Optional[str]
