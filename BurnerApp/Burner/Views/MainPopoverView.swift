@@ -1,18 +1,51 @@
 import SwiftUI
 
+public enum SideDrawerTab {
+    case none
+    case providers
+    case optimizer
+}
+
 public struct MainPopoverView: View {
     @ObservedObject public var apiService: BurnerAPIService
-    @AppStorage("isBurnerExpanded") private var isExpanded: Bool = false
-    @State private var selectedTab: Int = 0
+    @ObservedObject private var resizeManager = WindowResizeManager.shared
+    @ObservedObject private var sidePanelManager = SidePanelManager.shared
+
+    @State private var isAgentExpanded: Bool = true
 
     public init(apiService: BurnerAPIService) {
         self.apiService = apiService
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        mainPanelContent
+            .frame(width: resizeManager.currentWidth, height: resizeManager.currentHeight)
+            .background(
+                ZStack {
+                    Color(red: 0.08, green: 0.08, blue: 0.1)
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                }
+            )
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            )
+            .background(
+                WindowAccessor { window in
+                    resizeManager.attach(window: window)
+                    sidePanelManager.mainWindow = window
+                    sidePanelManager.apiService = apiService
+                }
+            )
+    }
+
+    // MARK: - Main Panel View Content
+    private var mainPanelContent: some View {
+        VStack(spacing: 0) {
             // Top Navigation Bar
-            HStack {
+            HStack(spacing: 10) {
                 HStack(spacing: 7) {
                     Image(systemName: "flame.fill")
                         .font(.system(size: 16, weight: .bold))
@@ -20,37 +53,71 @@ public struct MainPopoverView: View {
 
                     Text("Burner")
                         .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                        .fixedSize()
 
                     Circle()
                         .fill(apiService.overallStatus.color)
-                        .frame(width: 8, height: 8)
+                        .frame(width: 7, height: 7)
 
                     Text(apiService.overallStatus.rawValue.capitalized)
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(apiService.overallStatus.color)
-                        .padding(.horizontal, 5)
+                        .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(apiService.overallStatus.color.opacity(0.15))
                         .cornerRadius(4)
+                        .lineLimit(1)
+                        .fixedSize()
                 }
 
                 Spacer()
 
-                HStack(spacing: 10) {
-                    // Expand / Collapse Size Toggle
+                HStack(spacing: 8) {
+                    // Optimizer Button (toggles side panel docked on the left)
                     Button(action: {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            isExpanded.toggle()
-                        }
+                        sidePanelManager.toggle(tab: .optimizer)
                     }) {
-                        Image(systemName: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
+                        HStack(spacing: 4) {
+                            Image(systemName: "wand.and.stars")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("Optimizer")
+                                .font(.system(size: 11, weight: .semibold))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(sidePanelManager.activeTab == .optimizer ? Color.cyan : Color.cyan.opacity(0.2))
+                        .foregroundColor(sidePanelManager.activeTab == .optimizer ? .black : .cyan)
+                        .cornerRadius(5)
                     }
                     .buttonStyle(.plain)
-                    .help(isExpanded ? "Collapse Panel" : "Expand Panel")
+                    .help("Open AI Prompt Optimizer on left")
 
-                    // Manual Refresh Button
+                    // Providers Button (toggles side panel docked on the left)
+                    Button(action: {
+                        sidePanelManager.toggle(tab: .providers)
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "gearshape")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Providers")
+                                .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(sidePanelManager.activeTab == .providers ? Color.white.opacity(0.2) : Color.white.opacity(0.06))
+                        .foregroundColor(sidePanelManager.activeTab == .providers ? .white : .gray)
+                        .cornerRadius(5)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Manage Detected Providers on left")
+
+                    // Refresh Button
                     Button(action: {
                         Task {
                             await apiService.fetchStatus()
@@ -59,10 +126,11 @@ public struct MainPopoverView: View {
                     }) {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 12))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.gray)
+                            .padding(4)
                     }
                     .buttonStyle(.plain)
-                    .help("Refresh Quotas Now")
+                    .help("Refresh Quotas")
 
                     // Quit Button
                     Button(action: {
@@ -70,141 +138,277 @@ public struct MainPopoverView: View {
                     }) {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 14))
-                            .foregroundColor(.secondary.opacity(0.8))
+                            .foregroundColor(.gray.opacity(0.7))
+                            .padding(4)
                     }
                     .buttonStyle(.plain)
-                    .help("Quit Burner (Cmd+Q)")
+                    .help("Quit Burner")
                 }
             }
-            .padding(.bottom, 2)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color.black.opacity(0.35))
 
-            // View Mode Tab Picker
-            Picker("", selection: $selectedTab) {
-                Text("Overview").tag(0)
-                Text("5 Providers (\(apiService.providers.count))").tag(1)
-                Text("AI Agent").tag(2)
-            }
-            .pickerStyle(.segmented)
-            .padding(.bottom, 4)
+            Divider().background(Color.white.opacity(0.08))
 
-            // Backend Connection Warning (if offline)
+            // Disconnected Banner (if backend is unreachable)
             if !apiService.isServerConnected {
-                HStack(spacing: 7) {
+                HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12))
                         .foregroundColor(.orange)
-                        .font(.system(size: 13))
-                    Text("Backend disconnected on port 8000")
-                        .font(.system(size: 11, weight: .medium))
+                    Text("Backend disconnected on port 8000 — reconnecting...")
+                        .font(.system(size: 11))
+                        .foregroundColor(.orange)
                     Spacer()
-                    Button("Reconnect") {
+                    Button("Retry") {
                         Task { await apiService.fetchStatus() }
                     }
                     .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.orange)
                 }
-                .padding(8)
-                .background(Color.orange.opacity(0.15))
-                .cornerRadius(6)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 7)
+                .background(Color.orange.opacity(0.12))
             }
 
-            // Main Content Area with ScrollView
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 12) {
-                    
-                    if selectedTab == 0 {
-                        // TAB 0: OVERVIEW (Agent Deck + All 5 Providers + Drawer)
-                        AgentRecommendationDeck(apiService: apiService)
-
+            // Scrollable Content
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 14) {
+                    // MARK: - AI Agent Routing Card
+                    VStack(spacing: 10) {
                         HStack {
-                            Text("CONNECTED PROVIDERS (\(apiService.providers.count))")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.secondary)
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isAgentExpanded.toggle()
+                                }
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: isAgentExpanded ? "chevron.down" : "chevron.right")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.gray)
+
+                                    Image(systemName: "sparkles")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.cyan)
+
+                                    Text("AUTONOMOUS ROUTING AGENT")
+                                        .font(.system(size: 10.5, weight: .bold))
+                                        .foregroundColor(.gray)
+                                }
+                            }
+                            .buttonStyle(.plain)
+
                             Spacer()
-                            Text("Auto-refresh: 8s")
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                        }
 
-                        VStack(spacing: 8) {
-                            ForEach(apiService.providers) { provider in
-                                ProviderTileView(provider: provider)
+                            if let rec = apiService.activeRecommendation {
+                                Text("\(Int(rec.confidence * 100))% confidence")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(.cyan.opacity(0.85))
                             }
                         }
 
-                        Divider()
-                            .padding(.vertical, 2)
+                        if isAgentExpanded {
+                            VStack(alignment: .leading, spacing: 9) {
+                                // Task Selector Chips
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 6) {
+                                        ForEach(TaskType.allCases) { t in
+                                            Button(action: {
+                                                Task {
+                                                    await apiService.requestRecommendation(taskType: t)
+                                                }
+                                            }) {
+                                                HStack(spacing: 4) {
+                                                    Image(systemName: t.icon)
+                                                        .font(.system(size: 9.5))
+                                                    Text(t.title)
+                                                        .font(.system(size: 11, weight: apiService.selectedTaskType == t ? .bold : .regular))
+                                                        .lineLimit(1)
+                                                        .fixedSize(horizontal: true, vertical: false)
+                                                }
+                                                .padding(.horizontal, 9)
+                                                .padding(.vertical, 4.5)
+                                                .background(apiService.selectedTaskType == t ? Color.cyan.opacity(0.25) : Color.white.opacity(0.04))
+                                                .foregroundColor(apiService.selectedTaskType == t ? .cyan : .white.opacity(0.8))
+                                                .cornerRadius(6)
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 6)
+                                                        .stroke(apiService.selectedTaskType == t ? Color.cyan.opacity(0.4) : Color.clear, lineWidth: 1)
+                                                )
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                }
 
-                        DemoSimulationDrawer(apiService: apiService)
+                                // Recommendation Narrative
+                                if let rec = apiService.activeRecommendation {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        HStack {
+                                            Text(rec.headline)
+                                                .font(.system(size: 13, weight: .bold))
+                                                .foregroundColor(.white)
+                                            Spacer()
+                                            Text(rec.suggested_model)
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .foregroundColor(.cyan)
+                                        }
 
-                    } else if selectedTab == 1 {
-                        // TAB 1: DEDICATED PROVIDERS TAB (Large detail cards)
-                        HStack {
-                            Text("ALL AI CODING QUOTAS")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text("5 Connected")
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                        }
+                                        Text(rec.reasoning)
+                                            .font(.system(size: 11.5))
+                                            .foregroundColor(.white.opacity(0.85))
+                                            .lineSpacing(3)
+                                            .fixedSize(horizontal: false, vertical: true)
 
-                        VStack(spacing: 9) {
-                            ForEach(apiService.providers) { provider in
-                                ProviderTileView(provider: provider)
+                                        if let warning = rec.burn_rate_warning {
+                                            HStack(spacing: 5) {
+                                                Image(systemName: "exclamationmark.triangle.fill")
+                                                    .font(.system(size: 10))
+                                                    .foregroundColor(.orange)
+                                                Text(warning)
+                                                    .font(.system(size: 10.5, weight: .semibold))
+                                                    .foregroundColor(.orange)
+                                            }
+                                            .padding(.top, 2)
+                                        }
+                                    }
+                                    .padding(11)
+                                    .background(Color.white.opacity(0.04))
+                                    .cornerRadius(8)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                                    )
+                                }
                             }
                         }
-
-                        Divider()
-                            .padding(.vertical, 4)
-
-                        DemoSimulationDrawer(apiService: apiService)
-
-                    } else {
-                        // TAB 2: DEDICATED AI AGENT TAB
-                        AgentRecommendationDeck(apiService: apiService)
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("MULTI-FACTOR ROUTING LOGIC")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.secondary)
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Label("Quick edits are routed to Cursor / Copilot to preserve high-context quotas.", systemImage: "bolt.fill")
-                                Label("Deep architectural refactors prioritize Claude 3.5 Sonnet & Gemini Pro.", systemImage: "brain.head.profile")
-                                Label("Rapid burn rate (<25% quota) automatically triggers limit avoidance.", systemImage: "exclamationmark.shield.fill")
-                            }
-                            .font(.system(size: 10.5))
-                            .foregroundColor(.secondary)
-                            .padding(9)
-                            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-                            .cornerRadius(7)
-                        }
-
-                        Divider()
-                            .padding(.vertical, 2)
-
-                        DemoSimulationDrawer(apiService: apiService)
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(12)
+                    .background(Color.white.opacity(0.03))
+                    .cornerRadius(10)
+
+                    // MARK: - Providers Quotas List
+                    VStack(spacing: 9) {
+                        HStack {
+                            Text("AI CODING QUOTAS (\(apiService.providers.count) VISIBLE)")
+                                .font(.system(size: 10.5, weight: .bold))
+                                .foregroundColor(.gray)
+
+                            Spacer()
+
+                            Button(action: {
+                                sidePanelManager.toggle(tab: .providers)
+                            }) {
+                                HStack(spacing: 3) {
+                                    Text("Filter Tools")
+                                        .font(.system(size: 10.5, weight: .medium))
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 9))
+                                }
+                                .foregroundColor(.cyan)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 2)
+
+                        if apiService.providers.isEmpty {
+                            VStack(spacing: 8) {
+                                Image(systemName: "eye.slash")
+                                    .font(.system(size: 22))
+                                    .foregroundColor(.gray)
+                                Text("All providers are currently hidden.")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.gray)
+                                Button("Open Provider Manager") {
+                                    sidePanelManager.toggle(tab: .providers)
+                                }
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.cyan)
+                            }
+                            .padding(28)
+                            .frame(maxWidth: .infinity)
+                        } else {
+                            VStack(spacing: 8) {
+                                ForEach(apiService.providers) { provider in
+                                    CodexProviderRow(
+                                        provider: provider,
+                                        forecast: apiService.forecastFor(providerId: provider.provider_id),
+                                        onLaunch: {
+                                            Task {
+                                                await apiService.launchTarget(providerId: provider.provider_id)
+                                            }
+                                        }
+                                    )
+                                    .frame(maxWidth: .infinity)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(.trailing, 2)
+                .padding(16)
+                .frame(maxWidth: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider()
+            Divider().background(Color.white.opacity(0.08))
 
-            // Footer Info
-            HStack {
-                Text("Burner v1.0 • AI Builders Hackathon")
-                    .font(.system(size: 9.5))
-                    .foregroundColor(.secondary)
+            // Footer Bar
+            HStack(spacing: 12) {
+                Button(action: {
+                    sidePanelManager.toggle(tab: .optimizer)
+                }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 10.5))
+                        Text(sidePanelManager.activeTab == .optimizer ? "Hide Optimizer" : "Prompt Optimizer")
+                            .font(.system(size: 11, weight: .semibold))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(sidePanelManager.activeTab == .optimizer ? Color.cyan.opacity(0.3) : Color.white.opacity(0.06))
+                    .foregroundColor(sidePanelManager.activeTab == .optimizer ? .cyan : .white)
+                    .cornerRadius(5)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: {
+                    sidePanelManager.toggle(tab: .providers)
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 10.5))
+                        Text(sidePanelManager.activeTab == .providers ? "Hide Tools" : "Manage Tools")
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(sidePanelManager.activeTab == .providers ? Color.white.opacity(0.15) : Color.white.opacity(0.04))
+                    .foregroundColor(.gray)
+                    .cornerRadius(5)
+                }
+                .buttonStyle(.plain)
+
                 Spacer()
-                Text("Panel: \(isExpanded ? "Expanded" : "Standard")")
-                    .font(.system(size: 9.5))
-                    .foregroundColor(.secondary)
+
+                Text("Updated just now")
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray.opacity(0.7))
+
+                CornerResizeGrip()
             }
+            .padding(.leading, 16)
+            .padding(.trailing, 6)
+            .padding(.vertical, 6)
+            .background(Color.black.opacity(0.25))
         }
-        .padding(14)
-        .frame(
-            width: isExpanded ? 520 : 430,
-            height: isExpanded ? 760 : 640
-        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

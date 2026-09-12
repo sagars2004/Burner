@@ -8,6 +8,10 @@ public class BurnerAPIService: ObservableObject {
     @Published public var overallStatus: ProviderStatus = .healthy
     @Published public var activeRecommendation: RoutingRecommendation?
     @Published public var systemAlert: String?
+    @Published public var detectedProviders: [ProviderDetectionInfo] = []
+    @Published public var burnForecasts: [SprintBurnForecast] = []
+    @Published public var latestOptimization: PromptOptimizationResponse?
+    @Published public var isOptimizing: Bool = false
     @Published public var isServerConnected: Bool = false
     @Published public var isAnalyzing: Bool = false
     @Published public var selectedTaskType: TaskType = .general
@@ -21,6 +25,7 @@ public class BurnerAPIService: ObservableObject {
         startPolling()
         Task {
             await fetchStatus()
+            await fetchDetectedProviders()
         }
     }
 
@@ -59,6 +64,9 @@ public class BurnerAPIService: ObservableObject {
                 self.activeRecommendation = statusResponse.active_recommendation
             }
             self.systemAlert = statusResponse.system_alert
+            if let forecasts = statusResponse.burn_forecasts {
+                self.burnForecasts = forecasts
+            }
             self.isServerConnected = true
             self.lastUpdated = Date()
 
@@ -67,13 +75,45 @@ public class BurnerAPIService: ObservableObject {
                 self.previousAlert = alert
                 NotificationManager.shared.sendAlert(
                     title: "Burner Quota Alert",
-                    subtitle: "AI Headroom Threshold Crossed",
+                    subtitle: "AI Limit Wall Approaching",
                     body: alert,
                     identifier: "burner-alert"
                 )
             }
         } catch {
             self.isServerConnected = false
+        }
+    }
+
+    public func fetchDetectedProviders() async {
+        let endpoint = baseURL.appendingPathComponent("/api/providers/detected")
+        var request = URLRequest(url: endpoint)
+        request.timeoutInterval = 3.0
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else { return }
+            let decoder = JSONDecoder()
+            self.detectedProviders = try decoder.decode([ProviderDetectionInfo].self, from: data)
+        } catch {
+            print("Failed to fetch detected providers: \(error)")
+        }
+    }
+
+    public func toggleProvider(providerId: ProviderID, enabled: Bool) async {
+        let endpoint = baseURL.appendingPathComponent("/api/providers/toggle")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let payload = ProviderTogglePayload(provider_id: providerId.rawValue, enabled: enabled)
+        do {
+            request.httpBody = try JSONEncoder().encode(payload)
+            _ = try await URLSession.shared.data(for: request)
+            await fetchStatus()
+            await fetchDetectedProviders()
+        } catch {
+            print("Failed to toggle provider: \(error)")
         }
     }
 
@@ -107,6 +147,53 @@ public class BurnerAPIService: ObservableObject {
             self.activeRecommendation = try decoder.decode(RoutingRecommendation.self, from: data)
         } catch {
             print("Failed to fetch recommendation: \(error)")
+        }
+    }
+
+    public func optimizePrompt(prompt: String, taskType: TaskType, targetProvider: ProviderID? = nil) async -> PromptOptimizationResponse? {
+        self.isOptimizing = true
+        defer { self.isOptimizing = false }
+
+        let endpoint = baseURL.appendingPathComponent("/api/optimize-prompt")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10.0
+
+        let payload = PromptOptimizationRequestPayload(
+            prompt: prompt,
+            target_provider: targetProvider?.rawValue,
+            task_type: taskType
+        )
+
+        do {
+            request.httpBody = try JSONEncoder().encode(payload)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                return nil
+            }
+            let decoder = JSONDecoder()
+            let res = try decoder.decode(PromptOptimizationResponse.self, from: data)
+            self.latestOptimization = res
+            return res
+        } catch {
+            print("Failed to optimize prompt: \(error)")
+            return nil
+        }
+    }
+
+    public func launchTarget(providerId: ProviderID? = nil, target: String? = nil) async {
+        let endpoint = baseURL.appendingPathComponent("/api/launch")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let payload = LaunchPayload(provider_id: providerId?.rawValue, target: target)
+        do {
+            request.httpBody = try JSONEncoder().encode(payload)
+            _ = try await URLSession.shared.data(for: request)
+        } catch {
+            print("Failed to launch target: \(error)")
         }
     }
 
@@ -161,5 +248,9 @@ public class BurnerAPIService: ObservableObject {
             return "\(criticalProvider.name): \(Int(criticalProvider.quota_remaining_percent))%"
         }
         return nil
+    }
+
+    public func forecastFor(providerId: ProviderID) -> SprintBurnForecast? {
+        burnForecasts.first(where: { $0.provider_id == providerId })
     }
 }

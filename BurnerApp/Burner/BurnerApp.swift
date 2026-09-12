@@ -1,7 +1,22 @@
 import SwiftUI
+import AppKit
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Ensure regular application policy so it appears in the macOS Dock
+        NSApp.setActivationPolicy(.regular)
+        NSApp.applicationIconImage = BurnerIconRenderer.createDockIcon()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
+        return true
+    }
+}
 
 @main
 struct BurnerApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var apiService = BurnerAPIService()
 
     var body: some Scene {

@@ -49,9 +49,9 @@ public enum ProviderStatus: String, Codable {
 
     public var color: Color {
         switch self {
-        case .healthy: return .green
-        case .warning: return .orange
-        case .critical, .exhausted: return .red
+        case .healthy: return Color(red: 0.2, green: 0.8, blue: 0.4)
+        case .warning: return Color(red: 1.0, green: 0.65, blue: 0.0)
+        case .critical, .exhausted: return Color(red: 1.0, green: 0.25, blue: 0.25)
         }
     }
 }
@@ -96,24 +96,43 @@ public struct ProviderQuota: Codable, Identifiable {
     public var status: ProviderStatus
     public var burn_rate_per_hour: Double
     public var estimated_minutes_to_exhaustion: Int?
-    public var is_simulated: bool_or_false
+    public var is_simulated: Bool
     public let icon_name: String
     public let last_updated: String
-
-    public typealias bool_or_false = Bool
 
     public var formattedCountdown: String {
         let hours = resets_in_seconds / 3600
         let minutes = (resets_in_seconds % 3600) / 60
         if hours >= 24 {
             let days = hours / 24
-            return "Resets in \(days)d"
+            return "\(days)d reset"
         } else if hours > 0 {
-            return "Resets in \(hours)h \(minutes)m"
+            return "\(hours)h \(minutes)m"
         } else {
-            return "Resets in \(minutes)m"
+            return "\(minutes)m"
         }
     }
+}
+
+public struct ProviderDetectionInfo: Codable, Identifiable {
+    public var id: String { provider_id.rawValue }
+    public let provider_id: ProviderID
+    public let name: String
+    public let is_detected: Bool
+    public var is_enabled: Bool
+    public let detection_reasons: [String]
+    public let launch_target: String?
+}
+
+public struct SprintBurnForecast: Codable, Identifiable {
+    public var id: String { provider_id.rawValue }
+    public let provider_id: ProviderID
+    public let prompts_last_hour: Int
+    public let burn_rate_per_hour: Double
+    public let estimated_lockout_time: String?
+    public let minutes_until_lockout: Int?
+    public let lockout_warning: String?
+    public let safe_prompts_remaining: Int
 }
 
 public struct RoutingRecommendation: Codable {
@@ -128,11 +147,43 @@ public struct RoutingRecommendation: Codable {
     public let created_at: String
 }
 
+public struct PromptOptimizationRequestPayload: Codable {
+    public let prompt: String
+    public let target_provider: String?
+    public let task_type: TaskType
+}
+
+public struct PromptOptimizationResponse: Codable {
+    public let recommended_provider: ProviderID
+    public let original_prompt: String
+    public let optimized_prompt: String
+    public let suggested_model: String
+    public let estimated_input_tokens: Int
+    public let estimated_output_tokens: Int
+    public let token_budget_recommendation: String
+    public let provider_quota_headroom_pct: Double
+    public let launch_target: String?
+    public let explanation: String
+}
+
+public struct ProviderTogglePayload: Codable {
+    public let provider_id: String
+    public let enabled: Bool
+}
+
+public struct LaunchPayload: Codable {
+    public let provider_id: String?
+    public let target: String?
+}
+
 public struct StatusResponse: Codable {
     public let providers: [ProviderQuota]
     public let overall_status: ProviderStatus
     public let active_recommendation: RoutingRecommendation?
     public let system_alert: String?
+    public let detected_providers: [ProviderID]?
+    public let enabled_providers: [ProviderID]?
+    public let burn_forecasts: [SprintBurnForecast]?
     public let updated_at: String
 }
 
