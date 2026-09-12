@@ -26,6 +26,10 @@ public class BurnerAPIService: ObservableObject {
     @Published public var chatEngine: String = "gemini-3.6-flash"
     @Published public var activeHandoffCapsule: HandoffCapsuleResponsePayload?
     @Published public var isGeneratingCapsule: Bool = false
+    @Published public var activeCodeTrimResult: CodeTrimResponsePayload?
+    @Published public var isTrimmingCode: Bool = false
+    @Published public var activeSprintPlan: SprintPlanResponsePayload?
+    @Published public var isPlanningSprint: Bool = false
 
     private let baseURL = URL(string: "http://127.0.0.1:8000")!
     private var pollingCancellable: AnyCancellable?
@@ -348,6 +352,74 @@ public class BurnerAPIService: ObservableObject {
         }
         isGeneratingCapsule = false
     }
+
+    public func trimCode(
+        code: String,
+        mode: CompressionMode = .balanced,
+        taskFocus: String? = nil,
+        language: String? = "python"
+    ) async {
+        isTrimmingCode = true
+        let endpoint = baseURL.appendingPathComponent("/api/trim-code")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 12.0
+
+        let payload = CodeTrimRequestPayload(
+            raw_code: code,
+            language: language,
+            mode: mode,
+            task_focus: taskFocus
+        )
+
+        do {
+            request.httpBody = try JSONEncoder().encode(payload)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                isTrimmingCode = false
+                return
+            }
+
+            let decoder = JSONDecoder()
+            let res = try decoder.decode(CodeTrimResponsePayload.self, from: data)
+            self.activeCodeTrimResult = res
+        } catch {
+            print("Failed to trim code: \(error)")
+        }
+        isTrimmingCode = false
+    }
+
+    public func planSprint(taskDescription: String, targetHours: Double? = nil) async {
+        isPlanningSprint = true
+        let endpoint = baseURL.appendingPathComponent("/api/sprint-plan")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 14.0
+
+        let payload = SprintPlanRequestPayload(
+            task_description: taskDescription,
+            target_hours: targetHours
+        )
+
+        do {
+            request.httpBody = try JSONEncoder().encode(payload)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                isPlanningSprint = false
+                return
+            }
+
+            let decoder = JSONDecoder()
+            let res = try decoder.decode(SprintPlanResponsePayload.self, from: data)
+            self.activeSprintPlan = res
+        } catch {
+            print("Failed to plan sprint: \(error)")
+        }
+        isPlanningSprint = false
+    }
 }
+
 
 

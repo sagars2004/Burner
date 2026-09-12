@@ -197,3 +197,67 @@ def test_handoff_capsule_api():
     assert data["launch_target"] is not None
 
 
+def test_trim_code_api():
+    sample_code = """
+import os
+import sys
+import logging
+
+# Verbose license header
+# Copyright (c) 2026 Developer Inc. All rights reserved.
+
+class AuthService:
+    '''Primary authentication handler for tokens.'''
+    def __init__(self, key: str):
+        self.key = key
+        # Setup logger
+        self.logger = logging.getLogger(__name__)
+
+    def authenticate_user(self, user_id: str, secret: str) -> bool:
+        # Check credentials
+        if not user_id or not secret:
+            return False
+        return True
+
+    def helper_unused_method(self, data: dict):
+        # 10 lines of unused boilerplate
+        x = 1
+        y = 2
+        return x + y
+"""
+    req = {
+        "raw_code": sample_code,
+        "mode": "aggressive",
+        "task_focus": "authenticate_user"
+    }
+    res = client.post("/api/trim-code", json=req)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["original_token_count"] > data["trimmed_token_count"]
+    assert data["compression_ratio_pct"] > 0.0
+    assert len(data["trimmed_code"]) > 0
+    assert data["safe_prompts_gained"] >= 0
+
+
+def test_sprint_plan_api():
+    req = {
+        "task_description": "Build Stripe Checkout webhook endpoint with database idempotency and test coverage",
+        "target_hours": 3.0
+    }
+    res = client.post("/api/sprint-plan", json=req)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["task_description"] == req["task_description"]
+    assert data["total_estimated_tokens"] > 0
+    assert data["tokens_saved_vs_monolith"] > 0
+    assert data["claude_prompts_preserved"] > 0
+    assert len(data["stages"]) == 3
+    assert data["stages"][0]["stage_number"] == 1
+    assert data["stages"][0]["assigned_provider"] in ["codex", "gemini"]
+    assert data["stages"][1]["stage_number"] == 2
+    assert data["stages"][1]["assigned_provider"] in ["claude"]
+    assert data["stages"][2]["stage_number"] == 3
+    assert data["stages"][2]["assigned_provider"] in ["cursor", "copilot"]
+
+
+

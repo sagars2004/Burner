@@ -277,4 +277,81 @@ public struct HandoffCapsuleResponsePayload: Codable {
     public let explanation: String
 }
 
+public enum CompressionMode: String, Codable, CaseIterable, Identifiable {
+    case balanced = "balanced"
+    case aggressive = "aggressive"
+    case diffOnly = "diff_only"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .balanced: return "Balanced (-65%)"
+        case .aggressive: return "Aggressive (-80%)"
+        case .diffOnly: return "Diff Only (-85%)"
+        }
+    }
+}
+
+public struct CodeTrimRequestPayload: Codable {
+    public let raw_code: String
+    public let language: String?
+    public let mode: CompressionMode
+    public let task_focus: String?
+
+    public init(
+        raw_code: String,
+        language: String? = "python",
+        mode: CompressionMode = .balanced,
+        task_focus: String? = nil
+    ) {
+        self.raw_code = raw_code
+        self.language = language
+        self.mode = mode
+        self.task_focus = task_focus
+    }
+}
+
+public struct CodeTrimResponsePayload: Codable {
+    public let original_token_count: Int
+    public let trimmed_token_count: Int
+    public let compression_ratio_pct: Double
+    public let trimmed_code: String
+    public let safe_prompts_gained: Int
+    public let explanation: String
+    public let engine: String
+}
+
+public struct SprintStagePayload: Codable, Identifiable {
+    public var id: Int { stage_number }
+    public let stage_number: Int
+    public let stage_name: String
+    public let assigned_provider: ProviderID
+    public let suggested_model: String
+    public let prompt_template: String
+    public let estimated_tokens: Int
+    public let rationale: String
+}
+
+public struct SprintPlanRequestPayload: Codable {
+    public let task_description: String
+    public let target_hours: Double?
+
+    public init(task_description: String, target_hours: Double? = nil) {
+        self.task_description = task_description
+        self.target_hours = target_hours
+    }
+}
+
+public struct SprintPlanResponsePayload: Codable {
+    public let task_description: String
+    public let total_estimated_tokens: Int
+    public let tokens_saved_vs_monolith: Int
+    public let claude_prompts_preserved: Int
+    public let stages: [SprintStagePayload]
+    public let explanation: String
+    public let engine: String
+}
+
+
 

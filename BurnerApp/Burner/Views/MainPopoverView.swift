@@ -5,6 +5,8 @@ public enum SideDrawerTab {
     case providers
     case optimizer
     case handoff
+    case trimmer
+    case planner
 }
 
 public struct MainPopoverView: View {
@@ -126,6 +128,48 @@ public struct MainPopoverView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Open AI Prompt Optimizer on left")
+
+                    // Trimmer Button (toggles side panel docked on the left)
+                    Button(action: {
+                        sidePanelManager.toggle(tab: .trimmer)
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "scissors")
+                                .font(.system(size: 10.5, weight: .bold))
+                            Text("Trimmer")
+                                .font(.system(size: 11, weight: .semibold))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                        .background(sidePanelManager.activeTab == .trimmer ? Color.green : Color.green.opacity(0.18))
+                        .foregroundColor(sidePanelManager.activeTab == .trimmer ? .black : .green)
+                        .cornerRadius(5)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Code Trimmer & Token Reducer (-60% to -80% prompt burn)")
+
+                    // Planner Button (toggles side panel docked on the left)
+                    Button(action: {
+                        sidePanelManager.toggle(tab: .planner)
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "calendar.badge.clock")
+                                .font(.system(size: 10.5, weight: .bold))
+                            Text("Planner")
+                                .font(.system(size: 11, weight: .semibold))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                        .background(sidePanelManager.activeTab == .planner ? Color.purple : Color.purple.opacity(0.18))
+                        .foregroundColor(sidePanelManager.activeTab == .planner ? .black : Color(red: 0.75, green: 0.55, blue: 0.95))
+                        .cornerRadius(5)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Autonomous Sprint Token Planner: multi-model pipeline")
 
                     // Providers Button (toggles side panel docked on the left)
                     Button(action: {

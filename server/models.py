@@ -156,3 +156,52 @@ class HandoffCapsuleResponse(BaseModel):
     explanation: str
 
 
+class CompressionMode(str, Enum):
+    BALANCED = "balanced"
+    AGGRESSIVE = "aggressive"
+    DIFF_ONLY = "diff_only"
+
+
+class CodeTrimRequest(BaseModel):
+    raw_code: str
+    language: Optional[str] = "python"
+    mode: CompressionMode = CompressionMode.BALANCED
+    task_focus: Optional[str] = ""
+
+
+class CodeTrimResponse(BaseModel):
+    original_token_count: int
+    trimmed_token_count: int
+    compression_ratio_pct: float
+    trimmed_code: str
+    safe_prompts_gained: int
+    explanation: str
+    engine: str = "gemini-3.6-flash"
+
+
+class SprintStagePlan(BaseModel):
+    stage_number: int
+    stage_name: str
+    assigned_provider: ProviderID
+    suggested_model: str
+    prompt_template: str
+    estimated_tokens: int
+    rationale: str
+
+
+class SprintPlanRequest(BaseModel):
+    task_description: str
+    target_hours: Optional[float] = None
+
+
+class SprintPlanResponse(BaseModel):
+    task_description: str
+    total_estimated_tokens: int
+    tokens_saved_vs_monolith: int
+    claude_prompts_preserved: int
+    stages: List[SprintStagePlan]
+    explanation: str
+    engine: str = "gemini-3.6-flash"
+
+
+

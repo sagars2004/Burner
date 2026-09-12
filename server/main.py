@@ -8,6 +8,8 @@ from .models import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
+    CodeTrimRequest,
+    CodeTrimResponse,
     HandoffCapsuleRequest,
     HandoffCapsuleResponse,
     ProviderID,
@@ -19,6 +21,8 @@ from .models import (
     PromptOptimizationResponse,
     RoutingRecommendation,
     SimulateRequest,
+    SprintPlanRequest,
+    SprintPlanResponse,
     StatusResponse,
     TaskRequest,
     TaskType,
@@ -128,6 +132,17 @@ def chat_with_agent(req: ChatRequest):
 def generate_handoff_capsule(req: HandoffCapsuleRequest):
     quotas = adapter_manager.get_all_quotas(only_enabled=True)
     return agent.generate_handoff_capsule(req, quotas)
+
+
+@app.post("/api/trim-code", response_model=CodeTrimResponse)
+def trim_code(req: CodeTrimRequest):
+    return agent.trim_code(req)
+
+
+@app.post("/api/sprint-plan", response_model=SprintPlanResponse)
+def plan_sprint(req: SprintPlanRequest):
+    quotas = adapter_manager.get_all_quotas(only_enabled=True)
+    return agent.plan_sprint(req, quotas)
 
 
 @app.get("/api/forecast", response_model=List[SprintBurnForecast])
