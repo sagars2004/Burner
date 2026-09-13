@@ -29,66 +29,112 @@ public struct DemoSimulationDrawer: View {
             .buttonStyle(.plain)
 
             if isExpanded {
-                VStack(spacing: 6) {
+                VStack(spacing: 8) {
                     Text("Simulate live quota depletion to demonstrate threshold warnings & instant agent rerouting:")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 9.5))
+                        .foregroundColor(.white.opacity(0.65))
                         .fixedSize(horizontal: false, vertical: true)
 
-                    HStack(spacing: 6) {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
                         Button(action: {
-                            Task {
-                                await apiService.simulateDelta(providerId: "claude", delta: -25.0)
-                            }
+                            Task { await apiService.simulateDelta(providerId: "claude", delta: -25.0) }
                         }) {
-                            HStack(spacing: 3) {
+                            HStack(spacing: 4) {
                                 Image(systemName: "flame.fill")
-                                Text("Burn Claude (-25%)")
+                                Text("Burn Claude")
                             }
-                            .font(.system(size: 9, weight: .medium))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(Color.orange.opacity(0.18))
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4.5)
+                            .background(Color.orange.opacity(0.2))
                             .foregroundColor(.orange)
                             .cornerRadius(5)
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.orange.opacity(0.3), lineWidth: 0.5))
                         }
                         .buttonStyle(.plain)
 
                         Button(action: {
-                            Task {
-                                await apiService.simulateDelta(providerId: "cursor", delta: -25.0)
-                            }
+                            Task { await apiService.simulateDelta(providerId: "cursor", delta: -25.0) }
                         }) {
-                            HStack(spacing: 3) {
+                            HStack(spacing: 4) {
                                 Image(systemName: "cursorarrow.rays")
-                                Text("Burn Cursor (-25%)")
+                                Text("Burn Cursor")
                             }
-                            .font(.system(size: 9, weight: .medium))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(Color.blue.opacity(0.18))
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4.5)
+                            .background(Color.blue.opacity(0.2))
                             .foregroundColor(.blue)
                             .cornerRadius(5)
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.blue.opacity(0.3), lineWidth: 0.5))
                         }
                         .buttonStyle(.plain)
 
-                        Spacer()
+                        Button(action: {
+                            Task { await apiService.simulateDelta(providerId: "codex", delta: -25.0) }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "curlybraces")
+                                Text("Burn Codex")
+                            }
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4.5)
+                            .background(Color.green.opacity(0.2))
+                            .foregroundColor(.green)
+                            .cornerRadius(5)
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.green.opacity(0.3), lineWidth: 0.5))
+                        }
+                        .buttonStyle(.plain)
 
                         Button(action: {
-                            Task {
-                                await apiService.resetSimulation()
-                            }
+                            Task { await apiService.simulateDelta(providerId: "gemini", delta: -25.0) }
                         }) {
-                            HStack(spacing: 3) {
-                                Image(systemName: "arrow.counterclockwise")
-                                Text("Reset")
+                            HStack(spacing: 4) {
+                                Image(systemName: "sparkles")
+                                Text("Burn Gemini")
                             }
-                            .font(.system(size: 9, weight: .medium))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(Color.secondary.opacity(0.18))
-                            .foregroundColor(.secondary)
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4.5)
+                            .background(Color.purple.opacity(0.2))
+                            .foregroundColor(.purple)
                             .cornerRadius(5)
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.purple.opacity(0.3), lineWidth: 0.5))
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(action: {
+                            Task { await apiService.simulateDelta(providerId: "copilot", delta: -25.0) }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                                Text("Burn Copilot")
+                            }
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4.5)
+                            .background(Color.teal.opacity(0.2))
+                            .foregroundColor(.teal)
+                            .cornerRadius(5)
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.teal.opacity(0.3), lineWidth: 0.5))
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(action: {
+                            Task { await apiService.resetSimulation() }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.counterclockwise")
+                                Text("Reset All")
+                            }
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4.5)
+                            .background(Color.white.opacity(0.08))
+                            .foregroundColor(.white.opacity(0.8))
+                            .cornerRadius(5)
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.15), lineWidth: 0.5))
                         }
                         .buttonStyle(.plain)
                     }
@@ -96,8 +142,12 @@ public struct DemoSimulationDrawer: View {
                 .padding(.top, 4)
             }
         }
-        .padding(8)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.4))
-        .cornerRadius(6)
+        .padding(10)
+        .background(Color.white.opacity(0.03))
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.white.opacity(0.07), lineWidth: 1)
+        )
     }
 }

@@ -76,9 +76,9 @@ def get_status():
     elif any(q.status == ProviderStatus.WARNING for q in quotas):
         overall = ProviderStatus.WARNING
 
-    # Generate default general recommendation
+    # Generate default general recommendation (uses cache or heuristic during frequent background status polling)
     default_task = TaskRequest(task_type=TaskType.GENERAL)
-    active_rec = agent.recommend(default_task, quotas)
+    active_rec = agent.recommend(default_task, quotas, force_refresh=False)
 
     # Check for overall system alert
     alert = active_rec.burn_rate_warning
@@ -113,7 +113,7 @@ def toggle_provider(req: ProviderToggleRequest):
 @app.post("/api/recommend", response_model=RoutingRecommendation)
 def recommend_tool(task: TaskRequest):
     quotas = adapter_manager.get_all_quotas(only_enabled=True)
-    return agent.recommend(task, quotas)
+    return agent.recommend(task, quotas, force_refresh=True)
 
 
 @app.post("/api/optimize-prompt", response_model=PromptOptimizationResponse)

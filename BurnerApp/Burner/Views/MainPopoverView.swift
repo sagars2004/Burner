@@ -15,6 +15,8 @@ public struct MainPopoverView: View {
     @ObservedObject private var sidePanelManager = SidePanelManager.shared
 
     @State private var isAgentExpanded: Bool = true
+    @State private var showCustomPromptInput: Bool = false
+    @State private var customPromptText: String = ""
 
     public init(apiService: BurnerAPIService) {
         self.apiService = apiService
@@ -296,6 +298,58 @@ public struct MainPopoverView: View {
                                     }
                                 }
 
+                                // Custom Prompt Analysis Toggle
+                                HStack {
+                                    Button(action: {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            showCustomPromptInput.toggle()
+                                        }
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: showCustomPromptInput ? "chevron.down" : "text.magnifyingglass")
+                                                .font(.system(size: 9))
+                                            Text(showCustomPromptInput ? "Hide prompt analysis" : "Analyze specific task / prompt...")
+                                                .font(.system(size: 10))
+                                        }
+                                        .foregroundColor(.cyan.opacity(0.85))
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Spacer()
+                                }
+
+                                if showCustomPromptInput {
+                                    HStack(spacing: 6) {
+                                        TextField("e.g. Refactor authentication module to OAuth2", text: $customPromptText)
+                                            .textFieldStyle(.plain)
+                                            .font(.system(size: 11))
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 5)
+                                            .background(Color.white.opacity(0.06))
+                                            .cornerRadius(5)
+                                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.white.opacity(0.12), lineWidth: 1))
+
+                                        Button(action: {
+                                            Task {
+                                                await apiService.requestRecommendation(
+                                                    taskType: apiService.selectedTaskType,
+                                                    prompt: customPromptText
+                                                )
+                                            }
+                                        }) {
+                                            Text("Evaluate")
+                                                .font(.system(size: 10.5, weight: .bold))
+                                                .padding(.horizontal, 9)
+                                                .padding(.vertical, 5)
+                                                .background(Color.cyan)
+                                                .foregroundColor(.black)
+                                                .cornerRadius(5)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    .padding(.top, 1)
+                                }
+
                                 // Recommendation Narrative
                                 if let rec = apiService.activeRecommendation {
                                     VStack(alignment: .leading, spacing: 6) {
@@ -402,6 +456,9 @@ public struct MainPopoverView: View {
                         }
                     }
                     .frame(maxWidth: .infinity)
+
+                    // Hackathon Demo Simulation Controls
+                    DemoSimulationDrawer(apiService: apiService)
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity)

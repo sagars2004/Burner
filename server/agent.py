@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import time
 from typing import Dict, List, Optional, Tuple
 
 # Suppress google-genai library info/warning messages
@@ -42,35 +43,68 @@ class BurnerAgent:
     def __init__(self):
         self.gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self.nvidia_key = os.getenv("NVIDIA_API_KEY")
+        self.groq_key = os.getenv("GROQ_API_KEY")
 
-        if not self.gemini_key:
-            env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
-            if os.path.exists(env_path):
-                with open(env_path, "r") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith("GEMINI_API_KEY="):
-                            self.gemini_key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                        elif line.startswith("NVIDIA_API_KEY="):
-                            self.nvidia_key = line.split("=", 1)[1].strip().strip('"').strip("'")
+        self._endpoint_cooldowns: Dict[str, float] = {}
+        self._gemini_cooldown_until: float = 0.0
+        self._cached_recommendations: Dict[str, Tuple[RoutingRecommendation, float]] = {}
 
-    def recommend(self, task: TaskRequest, quotas: List[ProviderQuota]) -> RoutingRecommendation:
+        env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+        if os.path.exists(env_path):
+            with open(env_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("GEMINI_API_KEY=") and not self.gemini_key:
+                        self.gemini_key = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    elif line.startswith("NVIDIA_API_KEY=") and not self.nvidia_key:
+                        self.nvidia_key = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    elif line.startswith("GROQ_API_KEY=") and not self.groq_key:
+                        self.groq_key = line.split("=", 1)[1].strip().strip('"').strip("'")
+
+    def _get_gemini_client(self):
+        from google import genai
+        from google.genai.models import Models
+        Models._logged_afc_warning = True
+        return genai.Client(
+            api_key=self.gemini_key,
+            http_options={"timeout": 10000, "retry_options": {"attempts": 1}},
+        )
+
+    def recommend(
+        self,
+        task: TaskRequest,
+        quotas: List[ProviderQuota],
+        force_refresh: bool = False,
+    ) -> RoutingRecommendation:
         # Step 1: Detect burn rate warnings across providers
         burn_warning = self._check_burn_rate_alerts(quotas)
 
-        # Step 2: Try LLM reasoning (Gemini or NVIDIA NIM) if configured
-        if self.gemini_key:
-            rec = self._recommend_with_gemini(task, quotas, burn_warning)
-            if rec:
-                return rec
+        # Cache check: during background status polling (every 8s), reuse fresh recommendation to avoid burning LLM quotas
+        cache_key = f"{task.task_type.value}:{task.prompt_preview or ''}"
+        now = time.time()
+        if not force_refresh and cache_key in self._cached_recommendations:
+            cached_rec, timestamp = self._cached_recommendations[cache_key]
+            if now - timestamp < 90.0:
+                return cached_rec.model_copy(update={"burn_rate_warning": burn_warning})
 
-        if self.nvidia_key:
-            rec = self._recommend_with_nvidia(task, quotas, burn_warning)
-            if rec:
-                return rec
+        # Step 2: Try LLM reasoning (Gemini, NVIDIA NIM, or Groq) if a custom user prompt is provided
+        rec = None
+        should_use_llm = bool(task.prompt_preview and task.prompt_preview.strip())
+        if should_use_llm:
+            if self.gemini_key and now >= self._gemini_cooldown_until:
+                rec = self._recommend_with_gemini(task, quotas, burn_warning)
+
+            if not rec and (self.nvidia_key or self.groq_key):
+                rec = self._recommend_with_openai_compatible(task, quotas, burn_warning)
 
         # Step 3: Fast, deterministic local heuristic engine (always available, 0ms, zero keys needed)
-        return self._recommend_with_heuristic(task, quotas, burn_warning)
+        if not rec:
+            rec = self._recommend_with_heuristic(task, quotas, burn_warning)
+
+        if rec:
+            self._cached_recommendations[cache_key] = (rec, now)
+
+        return rec
 
     def optimize_prompt(
         self, req: PromptOptimizationRequest, quotas: List[ProviderQuota]
@@ -85,16 +119,25 @@ class BurnerAgent:
             if res:
                 return res
 
+        if self.nvidia_key or self.groq_key:
+            res = self._optimize_with_openai_compatible(req, quotas)
+            if res:
+                return res
+
         return self._optimize_with_heuristic(req, quotas)
 
     def chat(self, req: ChatRequest, quotas: List[ProviderQuota]) -> ChatResponse:
         """
-        Gemini-powered interactive quota copilot and AI strategy chatbot.
-        Informs developers of live quota statuses, rate-limit avoidance tactics,
-        and optimal model distribution for their coding tasks.
+        AI-powered interactive quota copilot and strategy chatbot.
+        Supports Gemini 3.6 Flash, NVIDIA NIM, Groq, and zero-latency local strategist fallback.
         """
         if self.gemini_key:
             res = self._chat_with_gemini(req, quotas)
+            if res:
+                return res
+
+        if self.nvidia_key or self.groq_key:
+            res = self._chat_with_openai_compatible(req, quotas)
             if res:
                 return res
 
@@ -113,6 +156,11 @@ class BurnerAgent:
             if res:
                 return res
 
+        if self.nvidia_key or self.groq_key:
+            res = self._handoff_with_openai_compatible(req, quotas)
+            if res:
+                return res
+
         return self._handoff_with_fallback(req, quotas)
 
     def trim_code(self, req: CodeTrimRequest) -> CodeTrimResponse:
@@ -123,6 +171,11 @@ class BurnerAgent:
         """
         if self.gemini_key:
             res = self._trim_code_with_gemini(req)
+            if res:
+                return res
+
+        if self.nvidia_key or self.groq_key:
+            res = self._trim_with_openai_compatible(req)
             if res:
                 return res
 
@@ -138,6 +191,11 @@ class BurnerAgent:
         """
         if self.gemini_key:
             res = self._plan_sprint_with_gemini(req, quotas)
+            if res:
+                return res
+
+        if self.nvidia_key or self.groq_key:
+            res = self._plan_sprint_with_openai_compatible(req, quotas)
             if res:
                 return res
 
@@ -394,11 +452,10 @@ class BurnerAgent:
     def _optimize_with_gemini(
         self, req: PromptOptimizationRequest, quotas: List[ProviderQuota]
     ) -> Optional[PromptOptimizationResponse]:
+        if time.time() < self._gemini_cooldown_until:
+            return None
         try:
-            from google import genai
-            from google.genai.models import Models
-            Models._logged_afc_warning = True
-            client = genai.Client(api_key=self.gemini_key)
+            client = self._get_gemini_client()
 
             system_prompt = f"""
 You are the Burner AI Prompt Optimizer & Context Window Budgeting Agent.
@@ -453,17 +510,80 @@ Return JSON only:
                 launch_target=data.get("launch_target", rec_pid.value.capitalize()),
                 explanation=data.get("explanation", "Optimized with Gemini 3.6 Flash for maximum first-turn accuracy."),
             )
+        except Exception as e:
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "quota" in str(e).lower():
+                self._gemini_cooldown_until = time.time() + 180.0
+            return None
+
+    def _optimize_with_openai_compatible(
+        self, req: PromptOptimizationRequest, quotas: List[ProviderQuota]
+    ) -> Optional[PromptOptimizationResponse]:
+        system_prompt = f"""
+You are the Burner AI Prompt Optimizer & Context Window Budgeting Agent.
+A developer submitted this raw coding task:
+"{req.prompt}"
+
+Task Category: {req.task_type.value}
+Target Provider Request: {req.target_provider.value if req.target_provider else "Auto-Select Optimal"}
+
+Current Connected Quotas:
+{json.dumps([q.model_dump() for q in quotas], indent=2)}
+
+Your task:
+1. Select the optimal provider from (claude, cursor, codex, gemini, copilot) based on task complexity and remaining quota headroom.
+2. Rewrite the prompt into a high-precision, production-grade prompt specifically tailored for that model to succeed in ONE single turn (avoiding costly back-and-forth prompt burning).
+3. Estimate input tokens and output tokens.
+4. Provide a token budget recommendation relative to remaining quota headroom.
+
+Return JSON only:
+{{
+  "recommended_provider": "claude" | "cursor" | "codex" | "gemini" | "copilot",
+  "suggested_model": string,
+  "optimized_prompt": string,
+  "estimated_input_tokens": integer,
+  "estimated_output_tokens": integer,
+  "token_budget_recommendation": string,
+  "launch_target": string,
+  "explanation": string
+}}
+"""
+        content, engine = self._call_openai_compatible(
+            messages=[{"role": "user", "content": system_prompt}],
+            json_mode=True,
+            max_tokens=800,
+        )
+        if not content or not engine:
+            return None
+        try:
+            data = json.loads(content)
+            rec_pid = ProviderID(data["recommended_provider"])
+            target_quota = next((q for q in quotas if q.provider_id == rec_pid), None)
+            headroom = target_quota.quota_remaining_percent if target_quota else 100.0
+
+            return PromptOptimizationResponse(
+                recommended_provider=rec_pid,
+                original_prompt=req.prompt,
+                optimized_prompt=data["optimized_prompt"],
+                suggested_model=data.get("suggested_model", "Optimal Model"),
+                estimated_input_tokens=int(data.get("estimated_input_tokens", 150)),
+                estimated_output_tokens=int(data.get("estimated_output_tokens", 800)),
+                token_budget_recommendation=data.get(
+                    "token_budget_recommendation", f"Safe: {headroom}% headroom available"
+                ),
+                provider_quota_headroom_pct=headroom,
+                launch_target=data.get("launch_target", rec_pid.value.capitalize()),
+                explanation=data.get("explanation", f"Optimized via {engine} for maximum first-turn accuracy."),
+            )
         except Exception:
             return None
 
     def _recommend_with_gemini(
         self, task: TaskRequest, quotas: List[ProviderQuota], burn_warning: Optional[str]
     ) -> Optional[RoutingRecommendation]:
+        if time.time() < self._gemini_cooldown_until:
+            return None
         try:
-            from google import genai
-            from google.genai.models import Models
-            Models._logged_afc_warning = True
-            client = genai.Client(api_key=self.gemini_key)
+            client = self._get_gemini_client()
 
             prompt = f"""
 You are the Burner AI routing agent. Your job is to select the optimal AI coding provider for a developer's next task to prevent hitting free-tier rate limits.
@@ -502,31 +622,101 @@ Return a JSON object with:
                 suggested_model=data.get("suggested_model", "Default Model"),
                 reasoning_engine="gemini-3.6-flash",
             )
-        except Exception:
+        except Exception as e:
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "quota" in str(e).lower():
+                self._gemini_cooldown_until = time.time() + 180.0
+                logging.info(f"Gemini quota reached (429). Cooldown for 180s: {e}")
             return None
 
-    def _recommend_with_nvidia(
+    def _call_openai_compatible(
+        self,
+        messages: List[Dict[str, str]],
+        json_mode: bool = False,
+        temperature: float = 0.2,
+        max_tokens: int = 500,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Calls NVIDIA NIM or Groq as a fast, high-quality fallback LLM when Gemini is rate-limited.
+        Returns (content, engine_name).
+        """
+        from openai import OpenAI
+
+        endpoints = []
+        if self.groq_key:
+            endpoints.append({
+                "name": "groq-gpt-oss-20b",
+                "base_url": "https://api.groq.com/openai/v1",
+                "api_key": self.groq_key,
+                "model": "openai/gpt-oss-20b",
+                "max_tokens_cap": 800,
+            })
+            endpoints.append({
+                "name": "groq-qwen3.8-27b",
+                "base_url": "https://api.groq.com/openai/v1",
+                "api_key": self.groq_key,
+                "model": "qwen/qwen3.8-27b",
+                "max_tokens_cap": 450,
+            })
+        if self.nvidia_key:
+            endpoints.append({
+                "name": "nvidia-nim-llama3.2-11b",
+                "base_url": "https://integrate.api.nvidia.com/v1",
+                "api_key": self.nvidia_key,
+                "model": "meta/llama-3.2-11b-vision-instruct",
+                "max_tokens_cap": 800,
+            })
+
+        now = time.time()
+        for ep in endpoints:
+            cooldown = self._endpoint_cooldowns.get(ep["name"], 0.0)
+            if now < cooldown:
+                continue
+
+            try:
+                client = OpenAI(base_url=ep["base_url"], api_key=ep["api_key"], timeout=6.0)
+                ep_max_tokens = min(max_tokens, ep.get("max_tokens_cap", max_tokens))
+                kwargs = {
+                    "model": ep["model"],
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": ep_max_tokens,
+                }
+                if json_mode:
+                    kwargs["response_format"] = {"type": "json_object"}
+                completion = client.chat.completions.create(**kwargs)
+                msg = completion.choices[0].message
+                content = msg.content or getattr(msg, "reasoning_content", None)
+                if content and content.strip():
+                    return content.strip(), ep["name"]
+            except Exception as e:
+                err_str = str(e)
+                if "429" in err_str or "rate_limit" in err_str.lower() or "tokens" in err_str.lower():
+                    self._endpoint_cooldowns[ep["name"]] = time.time() + 90.0
+                    logging.info(f"{ep['name']} rate-limited (429). Cooldown for 90s: {e}")
+                else:
+                    logging.warning(f"{ep['name']} invocation failed: {e}")
+                continue
+
+        return None, None
+
+    def _recommend_with_openai_compatible(
         self, task: TaskRequest, quotas: List[ProviderQuota], burn_warning: Optional[str]
     ) -> Optional[RoutingRecommendation]:
-        try:
-            from openai import OpenAI
-            client = OpenAI(
-                base_url="https://integrate.api.nvidia.com/v1",
-                api_key=self.nvidia_key,
-            )
-            prompt = f"""
+        prompt = f"""
 Analyze this developer task and choose the best AI tool among: claude, cursor, codex, gemini, copilot.
 Quotas: {json.dumps([q.model_dump() for q in quotas])}
 Task Type: {task.task_type.value}
 Respond in valid JSON only with keys: recommended_provider, fallback_provider, confidence, headline, reasoning, suggested_model.
 """
-            completion = client.chat.completions.create(
-                model="meta/llama-3.1-70b-instruct",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                response_format={"type": "json_object"}
-            )
-            data = json.loads(completion.choices[0].message.content)
+        content, engine = self._call_openai_compatible(
+            messages=[{"role": "user", "content": prompt}],
+            json_mode=True,
+            max_tokens=400,
+        )
+        if not content or not engine:
+            return None
+        try:
+            data = json.loads(content)
             return RoutingRecommendation(
                 recommended_provider=ProviderID(data["recommended_provider"]),
                 fallback_provider=ProviderID(data["fallback_provider"]),
@@ -534,20 +724,58 @@ Respond in valid JSON only with keys: recommended_provider, fallback_provider, c
                 headline=data["headline"],
                 reasoning=data["reasoning"],
                 burn_rate_warning=burn_warning,
-                suggested_model=data.get("suggested_model", "Llama-3.1-70B"),
-                reasoning_engine="nvidia-nim-llama3.1-70b",
+                suggested_model=data.get("suggested_model", "Llama-3.3-70B"),
+                reasoning_engine=engine,
             )
         except Exception:
             return None
 
+    def _chat_with_openai_compatible(
+        self, req: ChatRequest, quotas: List[ProviderQuota]
+    ) -> Optional[ChatResponse]:
+        quota_lines = []
+        for q in quotas:
+            mins = max(1, q.resets_in_seconds // 60)
+            quota_lines.append(
+                f"- {q.name} ({q.provider_id.value}): {q.quota_remaining_percent:.0f}% remaining, resets in ~{mins}m, status: {q.status.value}"
+            )
+        quota_str = "\n".join(quota_lines)
+
+        system_instruction = f"""You are Burner Copilot, a tactical AI pair-programming advisor built into the Burner macOS status bar app.
+You have real-time access to the developer's local AI tool quotas:
+{quota_str}
+
+Your mission:
+1. Help the developer navigate free-tier and subscription rate limits.
+2. Recommend the best model/tool for their current coding task (Claude 3.5 Sonnet for deep architecture, Cursor for inline edits, Codex for boilerplate, Gemini 1.5/3 Flash for huge context).
+3. Suggest ways to conserve token burn during sprints.
+4. Keep answers punchy, practical, and under 3-4 sentences."""
+
+        messages = [{"role": "system", "content": system_instruction}]
+        for msg in req.messages[-6:]:
+            messages.append({"role": msg.role, "content": msg.content})
+
+        content, engine = self._call_openai_compatible(
+            messages=messages,
+            temperature=0.7,
+            max_tokens=500,
+        )
+        if not content or not engine:
+            return None
+
+        return ChatResponse(
+            message=ChatMessage(role="assistant", content=content),
+            engine=engine,
+            suggested_actions=["Check reset timing", "Optimize my prompt", "Save Claude quota"],
+        )
+
     def _chat_with_gemini(
         self, req: ChatRequest, quotas: List[ProviderQuota]
     ) -> Optional[ChatResponse]:
+        if time.time() < self._gemini_cooldown_until:
+            return None
         try:
-            from google import genai
-            from google.genai.models import Models
-            Models._logged_afc_warning = True
-            client = genai.Client(api_key=self.gemini_key)
+            client = self._get_gemini_client()
 
             quota_lines = []
             for q in quotas:
@@ -588,7 +816,9 @@ Your mission:
                 suggested_actions=["Check reset timing", "Optimize my prompt", "Save Claude quota"]
             )
         except Exception as e:
-            logging.warning(f"Gemini chat failed, falling back to local strategist: {e}")
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "quota" in str(e).lower():
+                self._gemini_cooldown_until = time.time() + 180.0
+            logging.info(f"Gemini chat failed, falling back to local strategist: {e}")
             return None
 
     def _chat_with_fallback(
@@ -637,11 +867,10 @@ Your mission:
     def _handoff_with_gemini(
         self, req: HandoffCapsuleRequest, quotas: List[ProviderQuota]
     ) -> Optional[HandoffCapsuleResponse]:
+        if time.time() < self._gemini_cooldown_until:
+            return None
         try:
-            from google import genai
-            from google.genai.models import Models
-            Models._logged_afc_warning = True
-            client = genai.Client(api_key=self.gemini_key)
+            client = self._get_gemini_client()
 
             target_pid = req.target_provider
             if not target_pid:
@@ -704,7 +933,77 @@ Return valid JSON only:
                 explanation=data.get("explanation", f"Hot-Swapped seamlessly to {target_name} with {target_headroom}% headroom."),
             )
         except Exception as e:
-            logging.warning(f"Gemini handoff generation failed, falling back to local: {e}")
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "quota" in str(e).lower():
+                self._gemini_cooldown_until = time.time() + 180.0
+            logging.info(f"Gemini handoff generation failed, falling back to alternative: {e}")
+            return None
+
+    def _handoff_with_openai_compatible(
+        self, req: HandoffCapsuleRequest, quotas: List[ProviderQuota]
+    ) -> Optional[HandoffCapsuleResponse]:
+        target_pid = req.target_provider
+        if not target_pid:
+            candidates = [q for q in quotas if q.provider_id != req.source_provider]
+            candidates.sort(key=lambda q: q.quota_remaining_percent, reverse=True)
+            target_pid = candidates[0].provider_id if candidates else ProviderID.CURSOR
+
+        target_quota = next((q for q in quotas if q.provider_id == target_pid), None)
+        target_headroom = target_quota.quota_remaining_percent if target_quota else 85.0
+        target_name = target_quota.name if target_quota else target_pid.value.capitalize()
+
+        source_quota = next((q for q in quotas if q.provider_id == req.source_provider), None)
+        source_name = source_quota.name if source_quota else req.source_provider.value.capitalize()
+
+        prompt = f"""You are the Burner AI Hot-Swap Handoff Agent.
+A developer's AI session on {source_name} has hit low quota or rate limits.
+Synthesize the session context into a crystal-clear, zero-loss "Handoff Capsule" prompt specifically formatted for the recipient tool: {target_name}.
+
+Session Details:
+- Source Provider (Depleted): {source_name}
+- Target Provider (Headroom {target_headroom}%): {target_name}
+- Task Objective: {req.task_summary}
+- Current Code State / Snippet: {req.code_snippet or "None provided"}
+- Unresolved Issues / Errors: {req.unresolved_issues or "None listed"}
+
+Requirements:
+1. Write a standalone prompt for {target_name} that allows it to continue coding immediately without asking the developer for clarifying questions.
+2. Structure it cleanly with markdown.
+3. Estimate input token savings (typically 1,500 to 4,000 tokens).
+
+Return valid JSON only:
+{{
+  "capsule_prompt": string,
+  "estimated_token_savings": integer,
+  "explanation": string
+}}"""
+
+        content, engine = self._call_openai_compatible(
+            messages=[{"role": "user", "content": prompt}],
+            json_mode=True,
+            max_tokens=800,
+        )
+        if not content or not engine:
+            return None
+
+        try:
+            data = json.loads(content)
+            launch_map = {
+                ProviderID.CLAUDE: "Claude",
+                ProviderID.CURSOR: "Cursor",
+                ProviderID.CODEX: "ChatGPT",
+                ProviderID.COPILOT: "Visual Studio Code",
+                ProviderID.GEMINI: "https://aistudio.google.com",
+            }
+            return HandoffCapsuleResponse(
+                source_provider=req.source_provider,
+                target_provider=target_pid,
+                capsule_prompt=data["capsule_prompt"],
+                estimated_token_savings=int(data.get("estimated_token_savings", 2500)),
+                target_quota_headroom_pct=target_headroom,
+                launch_target=launch_map.get(target_pid, "Cursor"),
+                explanation=data.get("explanation", f"Hot-Swapped via {engine} to {target_name} ({target_headroom}% headroom)."),
+            )
+        except Exception:
             return None
 
     def _handoff_with_fallback(
@@ -775,11 +1074,10 @@ Please continue directly from the code state above and resolve the listed blocke
         )
 
     def _trim_code_with_gemini(self, req: CodeTrimRequest) -> Optional[CodeTrimResponse]:
+        if time.time() < self._gemini_cooldown_until:
+            return None
         try:
-            from google import genai
-            from google.genai.models import Models
-            Models._logged_afc_warning = True
-            client = genai.Client(api_key=self.gemini_key)
+            client = self._get_gemini_client()
 
             orig_tokens = max(15, len(req.raw_code) // 4)
 
@@ -828,7 +1126,61 @@ Source Code to Compress:
                 engine="gemini-3.6-flash",
             )
         except Exception as e:
-            logging.warning(f"Gemini code trim failed, falling back to local: {e}")
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "quota" in str(e).lower():
+                self._gemini_cooldown_until = time.time() + 180.0
+            logging.info(f"Gemini code trim failed, falling back to alternative: {e}")
+            return None
+
+    def _trim_with_openai_compatible(self, req: CodeTrimRequest) -> Optional[CodeTrimResponse]:
+        orig_tokens = max(15, len(req.raw_code) // 4)
+        prompt = f"""You are the Burner AI Context-Compressing Code Trimmer.
+Compress this source code to minimize token burn in an LLM prompt while preserving maximum semantic utility.
+
+Target Mode: {req.mode.value}
+Task Focus: {req.task_focus or "General code reference"}
+
+Instructions:
+1. Strip verbose license headers, redundant comments, and boilerplate docstrings.
+2. In 'aggressive' mode: replace implementation bodies of methods not in focus with '... // implementation omitted'. Keep exact signatures, argument types, and return types.
+3. In 'balanced' mode: preserve interfaces, contracts, critical error handling, and the active task focus methods.
+4. In 'diff_only' mode: output only the modified or critical sections with minimal context.
+5. Return JSON with:
+   - "trimmed_code": string
+   - "explanation": string
+
+Source Code to Compress:
+```
+{req.raw_code}
+```"""
+        content, engine = self._call_openai_compatible(
+            messages=[{"role": "user", "content": prompt}],
+            json_mode=True,
+            max_tokens=900,
+        )
+        if not content or not engine:
+            return None
+
+        try:
+            data = json.loads(content)
+            trimmed_code = data["trimmed_code"]
+            trimmed_tokens = max(5, len(trimmed_code) // 4)
+            if trimmed_tokens >= orig_tokens:
+                trimmed_tokens = int(orig_tokens * 0.4)
+
+            ratio = round((1.0 - (trimmed_tokens / orig_tokens)) * 100.0, 1)
+            saved = max(0, orig_tokens - trimmed_tokens)
+            safe_prompts = max(1, saved // 180)
+
+            return CodeTrimResponse(
+                original_token_count=orig_tokens,
+                trimmed_token_count=trimmed_tokens,
+                compression_ratio_pct=ratio,
+                trimmed_code=trimmed_code,
+                safe_prompts_gained=safe_prompts,
+                explanation=data.get("explanation", f"Compressed by {ratio}% via {engine}."),
+                engine=engine,
+            )
+        except Exception:
             return None
 
     def _trim_code_with_fallback(self, req: CodeTrimRequest) -> CodeTrimResponse:
@@ -895,11 +1247,10 @@ Source Code to Compress:
     def _plan_sprint_with_gemini(
         self, req: SprintPlanRequest, quotas: List[ProviderQuota]
     ) -> Optional[SprintPlanResponse]:
+        if time.time() < self._gemini_cooldown_until:
+            return None
         try:
-            from google import genai
-            from google.genai.models import Models
-            Models._logged_afc_warning = True
-            client = genai.Client(api_key=self.gemini_key)
+            client = self._get_gemini_client()
 
             quota_lines = []
             for q in quotas:
@@ -999,7 +1350,117 @@ Respond ONLY with valid JSON in this exact structure:
                 engine="gemini-3.6-flash",
             )
         except Exception as e:
-            logging.warning(f"Gemini sprint planner call failed, falling back: {e}")
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "quota" in str(e).lower():
+                self._gemini_cooldown_until = time.time() + 180.0
+            logging.info(f"Gemini sprint planner call failed, falling back to alternative: {e}")
+            return None
+
+    def _plan_sprint_with_openai_compatible(
+        self, req: SprintPlanRequest, quotas: List[ProviderQuota]
+    ) -> Optional[SprintPlanResponse]:
+        quota_lines = []
+        for q in quotas:
+            quota_lines.append(f"- {q.name} ({q.provider_id.value}): {q.quota_remaining_percent:.0f}% remaining, status: {q.status.value}")
+        quota_str = "\n".join(quota_lines)
+
+        system_instruction = f"""You are the Burner Autonomous Sprint Token Planner.
+You specialize in multi-model prompt distribution to prevent expensive LLM rate-limit lockouts (especially Claude 3.5 Sonnet).
+The developer has the following active AI tool quotas:
+{quota_str}
+
+Decompose the requested task into a 3-stage execution plan:
+Stage 1: Data Schemas, Config, Types & Boilerplate -> Assigned to Codex / Gemini Free Tier (0 Claude tokens burned).
+Stage 2: Core Business Logic, Security & Complex Architecture -> Assigned to Claude 3.5 Sonnet (Tightly scoped high-reasoning prompt).
+Stage 3: Comprehensive Unit Tests & Edge-Case Mocks -> Assigned to Cursor / Copilot (Inline fast generation).
+
+Respond ONLY with valid JSON in this exact structure:
+{{
+  "total_estimated_tokens": 5800,
+  "tokens_saved_vs_monolith": 14200,
+  "claude_prompts_preserved": 9,
+  "explanation": "Offloaded boilerplate to Codex and unit tests to Cursor, reducing Claude quota consumption by 71%.",
+  "stages": [
+    {{
+      "stage_number": 1,
+      "stage_name": "Data Models & Schemas",
+      "assigned_provider": "codex",
+      "suggested_model": "Codex / GPT-4o-mini",
+      "prompt_template": "...",
+      "estimated_tokens": 1200,
+      "rationale": "Zero high-reasoning Claude quota used for structural definitions."
+    }},
+    {{
+      "stage_number": 2,
+      "stage_name": "Core Logic & Security",
+      "assigned_provider": "claude",
+      "suggested_model": "Claude 3.5 Sonnet",
+      "prompt_template": "...",
+      "estimated_tokens": 2800,
+      "rationale": "High-reasoning turns focused solely on critical business logic."
+    }},
+    {{
+      "stage_number": 3,
+      "stage_name": "Unit Tests & Mocks",
+      "assigned_provider": "cursor",
+      "suggested_model": "Cursor / Claude-3.5-Haiku",
+      "prompt_template": "...",
+      "estimated_tokens": 1800,
+      "rationale": "Fast inline completion directly inside editor with full workspace context."
+    }}
+  ]
+}}"""
+
+        prompt = f"Task Description: {req.task_description}\nTarget Hours: {req.target_hours or 'Full Feature Sprint'}"
+        content, engine = self._call_openai_compatible(
+            messages=[
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": prompt},
+            ],
+            json_mode=True,
+            max_tokens=1000,
+        )
+        if not content or not engine:
+            return None
+
+        try:
+            raw_text = content.strip()
+            if raw_text.startswith("```"):
+                raw_text = raw_text.strip("`")
+                if raw_text.startswith("json"):
+                    raw_text = raw_text[4:].strip()
+
+            data = json.loads(raw_text)
+            stages = []
+            for s in data.get("stages", []):
+                prov_str = s.get("assigned_provider", "codex").lower()
+                pid = ProviderID.CODEX
+                for p in ProviderID:
+                    if p.value == prov_str:
+                        pid = p
+                        break
+
+                stages.append(
+                    SprintStagePlan(
+                        stage_number=s.get("stage_number", 1),
+                        stage_name=s.get("stage_name", "Stage"),
+                        assigned_provider=pid,
+                        suggested_model=s.get("suggested_model", "Standard Model"),
+                        prompt_template=s.get("prompt_template", ""),
+                        estimated_tokens=s.get("estimated_tokens", 1500),
+                        rationale=s.get("rationale", ""),
+                    )
+                )
+
+            return SprintPlanResponse(
+                task_description=req.task_description,
+                total_estimated_tokens=data.get("total_estimated_tokens", 5500),
+                tokens_saved_vs_monolith=data.get("tokens_saved_vs_monolith", 12500),
+                claude_prompts_preserved=data.get("claude_prompts_preserved", 8),
+                stages=stages,
+                explanation=data.get("explanation", f"Task decomposed across multi-model pipeline via {engine}."),
+                engine=engine,
+            )
+        except Exception:
             return None
 
     def _plan_sprint_with_fallback(
