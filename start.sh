@@ -6,7 +6,8 @@ set -e
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER_DIR="$PROJECT_ROOT/server"
-APP_PATH="/Users/sagarsahu/Library/Developer/Xcode/DerivedData/Burner-addkgpqgfzdupggnkqnkmfdmstoq/Build/Products/Debug/Burner.app"
+BUILD_DIR="$PROJECT_ROOT/build"
+APP_PATH="$BUILD_DIR/Build/Products/Debug/Burner.app"
 
 echo "===================================================="
 echo "🔥 Starting Burner — AI Quota Menu Bar Agent"
@@ -48,9 +49,14 @@ for i in {1..15}; do
     sleep 0.4
 done
 
-# 4. Fast incremental build of Swift Menu Bar App (picks up all Swift changes automatically)
-echo "🔨 Compiling latest Swift changes..."
-xcodebuild -project "$PROJECT_ROOT/BurnerApp/Burner.xcodeproj" -scheme Burner build -destination 'platform=macOS' -quiet 2>/dev/null || xcodebuild -project "$PROJECT_ROOT/BurnerApp/Burner.xcodeproj" -scheme Burner build -quiet
+# 4. Fast incremental build of Swift Menu Bar App (portable across any Mac)
+echo "🔨 Compiling Swift Menu Bar App..."
+xattr -cr "$PROJECT_ROOT/BurnerApp" 2>/dev/null || true
+xcodebuild -project "$PROJECT_ROOT/BurnerApp/Burner.xcodeproj" \
+    -scheme Burner \
+    CODE_SIGNING_ALLOWED=NO \
+    -derivedDataPath "$BUILD_DIR" \
+    build -quiet
 
 # 5. Launch the Native macOS Menu Bar App
 echo "🚀 Launching Burner Menu Bar App..."

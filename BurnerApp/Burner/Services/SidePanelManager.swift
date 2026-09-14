@@ -164,13 +164,7 @@ public struct SidePanelContainerView: View {
         }
         .frame(width: 380)
         .frame(maxHeight: .infinity)
-        .background(
-            ZStack {
-                Color(red: 0.08, green: 0.08, blue: 0.1)
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-            }
-        )
+        .background(Color(red: 0.08, green: 0.08, blue: 0.1))
         .cornerRadius(12)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
@@ -529,12 +523,7 @@ public struct HotSwapHandoffView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            ZStack {
-                Color(red: 0.08, green: 0.08, blue: 0.1)
-                Rectangle().fill(.ultraThinMaterial)
-            }
-        )
+        .background(Color(red: 0.08, green: 0.08, blue: 0.1))
         .onAppear {
             initializeProviders()
         }
@@ -635,12 +624,7 @@ public struct CodeTrimmerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            ZStack {
-                Color(red: 0.08, green: 0.08, blue: 0.1)
-                Rectangle().fill(.ultraThinMaterial)
-            }
-        )
+        .background(Color(red: 0.08, green: 0.08, blue: 0.1))
     }
 
     private var headerView: some View {
@@ -1019,12 +1003,7 @@ public struct SprintPlannerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            ZStack {
-                Color(red: 0.08, green: 0.08, blue: 0.1)
-                Rectangle().fill(.ultraThinMaterial)
-            }
-        )
+        .background(Color(red: 0.08, green: 0.08, blue: 0.1))
     }
 
     private var headerView: some View {

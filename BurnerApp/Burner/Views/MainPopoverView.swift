@@ -25,13 +25,7 @@ public struct MainPopoverView: View {
     public var body: some View {
         mainPanelContent
             .frame(width: resizeManager.currentWidth, height: resizeManager.currentHeight)
-            .background(
-                ZStack {
-                    Color(red: 0.08, green: 0.08, blue: 0.1)
-                    Rectangle()
-                        .fill(.ultraThinMaterial)
-                }
-            )
+            .background(Color(red: 0.08, green: 0.08, blue: 0.1))
             .cornerRadius(12)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)

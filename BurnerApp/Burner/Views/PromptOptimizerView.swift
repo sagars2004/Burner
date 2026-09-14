@@ -297,11 +297,6 @@ public struct PromptOptimizerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            ZStack {
-                Color(red: 0.08, green: 0.08, blue: 0.1)
-                Rectangle().fill(.ultraThinMaterial)
-            }
-        )
+        .background(Color(red: 0.08, green: 0.08, blue: 0.1))
     }
 }
