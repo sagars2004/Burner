@@ -488,13 +488,14 @@ public struct MainPopoverView: View {
                 Text("Updated just now")
                     .font(.system(size: 10))
                     .foregroundColor(.gray.opacity(0.7))
-
-                CornerResizeGrip()
             }
             .padding(.leading, 14)
-            .padding(.trailing, 6)
+            .padding(.trailing, 14)
             .padding(.vertical, 6)
             .background(Color.black.opacity(0.25))
+            .overlay {
+                CornerResizeGrip()
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

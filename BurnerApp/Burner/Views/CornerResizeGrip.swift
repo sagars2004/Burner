@@ -5,8 +5,15 @@ import Combine
 public class WindowResizeManager: NSObject, ObservableObject {
     public static let shared = WindowResizeManager()
 
-    @Published public var currentWidth: CGFloat = 480
-    @Published public var currentHeight: CGFloat = 640
+    public static let defaultWidth: CGFloat = 520
+    public static let defaultHeight: CGFloat = 640
+    public static let minWidth: CGFloat = 460
+    public static let maxWidth: CGFloat = 1100
+    public static let minHeight: CGFloat = 480
+    public static let maxHeight: CGFloat = 1200
+
+    @Published public var currentWidth: CGFloat = defaultWidth
+    @Published public var currentHeight: CGFloat = defaultHeight
 
     public weak var window: NSWindow?
     public var isDrawerOpen: Bool = false
@@ -17,8 +24,34 @@ public class WindowResizeManager: NSObject, ObservableObject {
         super.init()
         let savedW = UserDefaults.standard.double(forKey: "burnerPanelWidth")
         let savedH = UserDefaults.standard.double(forKey: "burnerPanelHeight")
-        if savedW >= 460 { self.currentWidth = CGFloat(savedW) } else { self.currentWidth = 480 }
-        if savedH >= 500 { self.currentHeight = CGFloat(savedH) } else { self.currentHeight = 640 }
+        if savedW >= WindowResizeManager.minWidth && savedW <= WindowResizeManager.maxWidth {
+            self.currentWidth = CGFloat(savedW)
+        } else {
+            self.currentWidth = WindowResizeManager.defaultWidth
+        }
+        if savedH >= WindowResizeManager.minHeight && savedH <= WindowResizeManager.maxHeight {
+            self.currentHeight = CGFloat(savedH)
+        } else {
+            self.currentHeight = WindowResizeManager.defaultHeight
+        }
+    }
+
+    public func resetToDefaultSize() {
+        currentWidth = Self.defaultWidth
+        currentHeight = Self.defaultHeight
+        UserDefaults.standard.set(Double(Self.defaultWidth), forKey: "burnerPanelWidth")
+        UserDefaults.standard.set(Double(Self.defaultHeight), forKey: "burnerPanelHeight")
+
+        if let window = self.window {
+            let currentFrame = window.frame
+            let topY = currentFrame.maxY
+            let newY = topY - Self.defaultHeight
+            let newFrame = NSRect(x: currentFrame.origin.x, y: newY, width: Self.defaultWidth, height: Self.defaultHeight)
+            isUpdatingFrame = true
+            window.setFrame(newFrame, display: true, animate: true)
+            isUpdatingFrame = false
+            SidePanelManager.shared.updatePosition()
+        }
     }
 
     public func attach(window: NSWindow) {
@@ -53,7 +86,7 @@ public struct CornerResizeGrip: View {
     public var body: some View {
         CornerResizeGripRepresentable()
             .frame(width: 24, height: 24)
-            .help("Drag to resize panel")
+            .help("Drag to resize panel • Double-click to reset")
     }
 }
 
@@ -73,8 +106,8 @@ public class ResizeGripNSView: NSView {
     private var isHovered: Bool = false
     private var isDragging: Bool = false
     private var dragStartMouse: NSPoint = .zero
-    private var dragStartWidth: CGFloat = 480
-    private var dragStartHeight: CGFloat = 640
+    private var dragStartWidth: CGFloat = WindowResizeManager.defaultWidth
+    private var dragStartHeight: CGFloat = WindowResizeManager.defaultHeight
     private var dragStartFrame: NSRect = .zero
     private var trackingArea: NSTrackingArea?
 
@@ -128,6 +161,10 @@ public class ResizeGripNSView: NSView {
     }
 
     public override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            WindowResizeManager.shared.resetToDefaultSize()
+            return
+        }
         guard let window = self.window else { return }
         isDragging = true
         dragStartMouse = NSEvent.mouseLocation
@@ -138,6 +175,18 @@ public class ResizeGripNSView: NSView {
         needsDisplay = true
     }
 
+    public override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        let resetItem = NSMenuItem(title: "Reset Size (520 × 640)", action: #selector(handleResetSize), keyEquivalent: "")
+        resetItem.target = self
+        menu.addItem(resetItem)
+        return menu
+    }
+
+    @objc private func handleResetSize() {
+        WindowResizeManager.shared.resetToDefaultSize()
+    }
+
     public override func mouseDragged(with event: NSEvent) {
         guard isDragging, let window = self.window, dragStartFrame != .zero else { return }
 
@@ -145,10 +194,10 @@ public class ResizeGripNSView: NSView {
         let deltaX = currentMouse.x - dragStartMouse.x
         let deltaY = dragStartMouse.y - currentMouse.y
 
-        let minW: CGFloat = 460
-        let maxW: CGFloat = 1100
-        let minH: CGFloat = 500
-        let maxH: CGFloat = 1200
+        let minW = WindowResizeManager.minWidth
+        let maxW = WindowResizeManager.maxWidth
+        let minH = WindowResizeManager.minHeight
+        let maxH = WindowResizeManager.maxHeight
 
         let newW = max(minW, min(maxW, dragStartWidth + deltaX))
         let newH = max(minH, min(maxH, dragStartHeight + deltaY))
