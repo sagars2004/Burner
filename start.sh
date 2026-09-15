@@ -52,11 +52,17 @@ done
 # 4. Fast incremental build of Swift Menu Bar App (portable across any Mac)
 echo "🔨 Compiling Swift Menu Bar App..."
 xattr -cr "$PROJECT_ROOT/BurnerApp" 2>/dev/null || true
-xcodebuild -project "$PROJECT_ROOT/BurnerApp/Burner.xcodeproj" \
+ARCH=$(uname -m)
+BUILD_LOG=$(xcodebuild -project "$PROJECT_ROOT/BurnerApp/Burner.xcodeproj" \
     -scheme Burner \
+    -destination "platform=macOS,arch=$ARCH" \
     CODE_SIGNING_ALLOWED=NO \
     -derivedDataPath "$BUILD_DIR" \
-    build -quiet
+    build -quiet 2>&1) || {
+    echo "❌ Compilation failed:"
+    echo "$BUILD_LOG" | grep -v -E "DVT|CoreDevice|CoreSimulator|iOSSimulator|IDERunDestination|feedbackassistant"
+    exit 1
+}
 
 # 5. Launch the Native macOS Menu Bar App
 echo "🚀 Launching Burner Menu Bar App..."
